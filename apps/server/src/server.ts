@@ -348,6 +348,8 @@ const layerProjectCloneTracker = ProjectCloneTracker.layer.pipe(
 );
 
 const layerReview = ReviewService.layer.pipe(
+  // Imported projects outside the server cwd are valid review workspaces.
+  Layer.provide(ProjectStore.layer),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
 );

@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import {
@@ -16,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -38,6 +40,7 @@ export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const projects = yield* ProjectStore.ProjectStoreV2;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const settings = yield* ServerSettings.ServerSettingsService;
@@ -94,6 +97,19 @@ export const make = Effect.gen(function* () {
     ) {
       return;
     }
+
+    const activeProject = yield* projects.findActiveByWorkspaceRoot(cwd).pipe(
+      Effect.mapError(
+        (cause) =>
+          new VcsRepositoryDetectionError({
+            operation,
+            cwd,
+            detail: "Failed to validate the review workspace against active projects.",
+            cause,
+          }),
+      ),
+    );
+    if (Option.isSome(activeProject)) return;
 
     return yield* new VcsRepositoryDetectionError({
       operation,

@@ -1,11 +1,15 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -17,6 +21,8 @@ function layer(input: {
   readonly detectCalls?: Array<{ readonly cwd: string }>;
   readonly worktreesDirectory?: string;
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
+  readonly activeProjectRoots?: ReadonlyArray<string>;
+  readonly activeProjectLookups?: Array<string>;
 }) {
   return ReviewService.layer.pipe(
     Layer.provide(
@@ -35,6 +41,30 @@ function layer(input: {
       ServerSettings.ServerSettingsService.layerTest({
         worktreesDirectory: input.worktreesDirectory ?? "",
         previousWorktreesDirectories: [...(input.previousWorktreesDirectories ?? [])],
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(ProjectStore.ProjectStoreV2)({
+        findActiveByWorkspaceRoot: (workspaceRoot) =>
+          Effect.sync(() => {
+            input.activeProjectLookups?.push(workspaceRoot);
+            const projectIndex = input.activeProjectRoots?.indexOf(workspaceRoot) ?? -1;
+            if (projectIndex < 0) return Option.none<ProjectStore.ProjectRow>();
+            return Option.some({
+              projectId: ProjectId.make(`project-${projectIndex}`),
+              title: "Imported project",
+              workspaceRoot,
+              defaultModelSelection: null,
+              defaultThreadEnvMode: null,
+              autoPull: false,
+              faviconPath: null,
+              projectIcon: null,
+              scripts: [],
+              createdAt: "2026-09-18T12:00:00.000Z",
+              updatedAt: "2026-09-18T12:00:00.000Z",
+              deletedAt: null,
+            } satisfies ProjectStore.ProjectRow);
+          }),
       }),
     ),
     Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir)),
@@ -150,6 +180,59 @@ describe("ReviewService", () => {
       assert.deepStrictEqual(result.sources, []);
       assert.deepStrictEqual(detectCalls, [{ cwd: workspaceRoot }]);
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "allows imported linked-worktree preview and file requests outside the server workspace",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+        const importedRoot = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-review-herdr-worktree-",
+        });
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+        yield* fs.writeFileString(
+          path.join(importedRoot, ".git"),
+          "gitdir: /tmp/source-repository/.git/worktrees/imported\n",
+        );
+        const detectCalls: Array<{ readonly cwd: string }> = [];
+        const activeProjectLookups: Array<string> = [];
+
+        const result = yield* Effect.gen(function* () {
+          const review = yield* ReviewService.ReviewService;
+          const preview = yield* review.getDiffPreview({ cwd: importedRoot });
+          const fileContentsError = yield* review
+            .getDiffFileContents({
+              cwd: importedRoot,
+              sourceKind: "working-tree",
+              changeType: "change",
+              baseRef: "HEAD",
+              headRef: null,
+              oldPath: "src/navigation.ts",
+              newPath: "src/navigation.ts",
+            })
+            .pipe(Effect.flip);
+          return { preview, fileContentsError };
+        }).pipe(
+          Effect.provide(
+            layer({
+              workspaceRoot,
+              baseDir,
+              detectCalls,
+              activeProjectRoots: [importedRoot],
+              activeProjectLookups,
+            }),
+          ),
+        );
+
+        assert.strictEqual(result.preview.cwd, importedRoot);
+        assert.deepStrictEqual(result.preview.sources, []);
+        assert.strictEqual(result.fileContentsError._tag, "VcsUnsupportedOperationError");
+        assert.deepStrictEqual(activeProjectLookups, [importedRoot, importedRoot]);
+        assert.deepStrictEqual(detectCalls, [{ cwd: importedRoot }, { cwd: importedRoot }]);
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("preserves unexpected path-resolution failures", () =>

@@ -86,6 +86,11 @@ import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
+import {
+  resolveDiffPanelWorkspace,
+  selectDiffPreviewForWorkspace,
+  selectDiffPanelThread,
+} from "../lib/diffPanelWorkspace";
 
 import { useReviewFilePatches } from "./diffs/useReviewFilePatches";
 import { DiffFileLoadingBoundary } from "./diffs/DiffFileLoadingBoundary";
@@ -153,7 +158,8 @@ export default function DiffPanel({
     select: (params) => resolveThreadRouteRef(params),
   });
   const activeThreadId = routeThreadRef?.threadId ?? null;
-  const activeThread = useThreadShell(routeThreadRef);
+  const loadedThread = useThreadShell(routeThreadRef);
+  const activeThread = selectDiffPanelThread(routeThreadRef, loadedThread);
   const activeThreadProjection = useThreadProjection(routeThreadRef)?.projection ?? null;
   const activeProjectId = activeThread?.projectId ?? null;
   const activeProject = useProject(
@@ -164,10 +170,9 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const activeRepositoryRoot = activeThread?.worktreePath
-    ? undefined
-    : activeProject?.repositoryIdentity?.rootPath;
+  const activeWorkspace = resolveDiffPanelWorkspace(routeThreadRef, activeThread, activeProject);
+  const activeCwd = activeWorkspace?.cwd;
+  const activeRepositoryRoot = activeWorkspace?.repositoryRoot;
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -269,51 +274,35 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
-    selectedRunId === null && activeThread && activeCwd
+    selectedRunId === null && activeWorkspace
       ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
+          environmentId: activeWorkspace.environmentId,
           input: {
-            cwd: activeCwd,
+            cwd: activeWorkspace.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
           },
         })
       : null,
   );
-  const shouldRetryBranchDiffAtEnvironmentCwd =
-    selectedRunId === null &&
-    primaryBranchDiffPreview.error?.includes("configured workspace root") === true &&
-    serverConfig?.cwd !== undefined &&
-    serverConfig.cwd !== activeCwd;
-  const fallbackBranchDiffPreview = useEnvironmentQuery(
-    shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
-      ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
-          input: {
-            cwd: serverConfig.cwd,
-            ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
-            ignoreWhitespace: diffIgnoreWhitespace,
-          },
-        })
-      : null,
+  const branchDiffPreviewData = selectDiffPreviewForWorkspace(
+    activeWorkspace,
+    primaryBranchDiffPreview.data,
   );
-  const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
-    ? fallbackBranchDiffPreview
-    : primaryBranchDiffPreview;
   const canRefreshGitDiff =
     isGitRepo && selectedRunId === null && activeThread != null && activeCwd != null;
   const activeThreadRefreshKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
 
-  const selectedGitSource = branchDiffPreview.data?.sources.find(
+  const selectedGitSource = branchDiffPreviewData?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
-  const refreshPreviewQuery = branchDiffPreview.refresh;
+  const refreshPreviewQuery = primaryBranchDiffPreview.refresh;
   const refreshDiffFromUserAction = refreshPreviewQuery;
 
   const currentLoadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
-    const preview = branchDiffPreview.data;
+    const preview = branchDiffPreviewData;
     if (selectedRunId !== null || !activeThread || !preview || !selectedGitSource) {
       return undefined;
     }
@@ -326,7 +315,7 @@ export default function DiffPanel({
       headRef: selectedGitSource.headRef,
       cacheKey: selectedGitSource.diffHash,
     });
-  }, [activeThread, branchDiffPreview.data, getDiffFileContents, selectedGitSource, selectedRunId]);
+  }, [activeThread, branchDiffPreviewData, getDiffFileContents, selectedGitSource, selectedRunId]);
   const loadDiffFilesRef = useRef(currentLoadDiffFiles);
   loadDiffFilesRef.current = currentLoadDiffFiles;
   const loadDiffFiles = useCallback<FileDiffContentsLoader>(async (fileDiff) => {
@@ -338,11 +327,11 @@ export default function DiffPanel({
     selectedRunId === null &&
       selectedGitScope === "branch" &&
       activeThread &&
-      branchDiffPreview.data?.cwd
+      branchDiffPreviewData?.cwd
       ? vcsEnvironment.listRefs({
           environmentId: activeThread.environmentId,
           input: {
-            cwd: branchDiffPreview.data.cwd,
+            cwd: branchDiffPreviewData.cwd,
             includeMatchingRemoteRefs: true,
             refKind: "local",
             ...(baseRefQuery.trim().length > 0 ? { query: baseRefQuery.trim() } : {}),
@@ -355,11 +344,11 @@ export default function DiffPanel({
     selectedRunId === null &&
       selectedGitScope === "branch" &&
       activeThread &&
-      branchDiffPreview.data?.cwd
+      branchDiffPreviewData?.cwd
       ? vcsEnvironment.listRefs({
           environmentId: activeThread.environmentId,
           input: {
-            cwd: branchDiffPreview.data.cwd,
+            cwd: branchDiffPreviewData.cwd,
             includeMatchingRemoteRefs: true,
             refKind: "remote",
             ...(baseRefQuery.trim().length > 0 ? { query: baseRefQuery.trim() } : {}),
@@ -388,8 +377,10 @@ export default function DiffPanel({
   const isSelectedPatchTruncated = !selectedTurn && selectedGitSource?.truncated === true;
   const isLoadingSelectedPatch = selectedTurn
     ? activeCheckpointDiff.isPending
-    : branchDiffPreview.isPending;
-  const selectedPatchError = selectedTurn ? activeCheckpointDiff.error : branchDiffPreview.error;
+    : primaryBranchDiffPreview.isPending;
+  const selectedPatchError = selectedTurn
+    ? activeCheckpointDiff.error
+    : primaryBranchDiffPreview.error;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const lazySource =
@@ -421,13 +412,13 @@ export default function DiffPanel({
     loadNextFiles,
   } = useReviewFilePatches({
     environmentId: activeThread?.environmentId,
-    cwd: branchDiffPreview.data?.cwd,
+    cwd: branchDiffPreviewData?.cwd,
     source: lazySource,
     baseRef: lazySource?.baseRef ?? selectedBaseRef,
     ignoreWhitespace: diffIgnoreWhitespace,
     theme: resolvedTheme,
-    revision: branchDiffPreview.data
-      ? DateTime.formatIso(branchDiffPreview.data.generatedAt)
+    revision: branchDiffPreviewData
+      ? DateTime.formatIso(branchDiffPreviewData.generatedAt)
       : undefined,
     preview: renderablePatch,
   });
@@ -447,7 +438,7 @@ export default function DiffPanel({
     resourceKey: `diff:${activeThreadRefreshKey ?? ""}`,
   });
 
-  const isRefreshingDiff = branchDiffPreview.isPending || areFilePatchesPending;
+  const isRefreshingDiff = primaryBranchDiffPreview.isPending || areFilePatchesPending;
   const renderableFileEntries = useMemo(
     () => renderableFiles.map(getCachedFileEntry),
     [renderableFiles],
