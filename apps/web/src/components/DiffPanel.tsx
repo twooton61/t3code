@@ -95,6 +95,11 @@ import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
+import {
+  resolveDiffPanelWorkspace,
+  selectDiffPanelThread,
+  selectDiffPreviewForWorkspace,
+} from "../lib/diffPanelWorkspace";
 
 import { useReviewFilePatches } from "./diffs/useReviewFilePatches";
 import { DiffFileLoadingBoundary } from "./diffs/DiffFileLoadingBoundary";
@@ -223,7 +228,8 @@ export default function DiffPanel({
 
   const routeThreadRef = useThreadRouteRef();
   const activeThreadId = routeThreadRef?.threadId ?? null;
-  const activeThread = useQuietThreadShell(routeThreadRef);
+  const loadedThread = useQuietThreadShell(routeThreadRef);
+  const activeThread = selectDiffPanelThread(routeThreadRef, loadedThread);
   const fileAccess = useFilesystemReadAccess(activeThread?.environmentId ?? null);
   const { canReadFiles } = fileAccess;
   const activeProjectId = activeThread?.projectId ?? null;
@@ -235,10 +241,9 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const activeRepositoryRoot = activeThread?.worktreePath
-    ? undefined
-    : activeProject?.repositoryIdentity?.rootPath;
+  const activeWorkspace = resolveDiffPanelWorkspace(routeThreadRef, activeThread, activeProject);
+  const activeCwd = activeWorkspace?.cwd;
+  const activeRepositoryRoot = activeWorkspace?.repositoryRoot;
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -346,9 +351,9 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const branchDiffPreviewInput =
-    canReadFiles && isGitSelection && activeThread && activeCwd
+    canReadFiles && isGitSelection && activeWorkspace
       ? {
-          cwd: activeCwd,
+          cwd: activeWorkspace.cwd,
           ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
           ignoreWhitespace: diffIgnoreWhitespace,
         }
@@ -358,10 +363,10 @@ export default function DiffPanel({
   // Read under the workspace mutation id, so each mutation refetches the diff; the panel stays
   // mounted while hidden, so a mutation made then is already reflected when it shows.
   const branchDiffPreview = useEnvironmentQuery(
-    branchDiffPreviewInput && activeThread
+    branchDiffPreviewInput && activeWorkspace
       ? revisionedQuery(
           reviewEnvironment.diffPreview({
-            environmentId: activeThread.environmentId,
+            environmentId: activeWorkspace.environmentId,
             input: branchDiffPreviewInput,
           }),
           canRefreshGitDiff ? workspaceMutationId : undefined,
@@ -372,13 +377,17 @@ export default function DiffPanel({
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
 
-  const selectedGitSource = branchDiffPreview.data?.sources.find(
+  const branchDiffPreviewData = selectDiffPreviewForWorkspace(
+    activeWorkspace,
+    branchDiffPreview.data,
+  );
+  const selectedGitSource = branchDiffPreviewData?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
   const refreshPreviewQuery = branchDiffPreview.refresh;
   const refreshDiffFromUserAction = refreshPreviewQuery;
 
-  const preview = branchDiffPreview.data;
+  const preview = branchDiffPreviewData;
   const gitDiff = selectedGitSource?.diff;
 
   const toolCallPreview =
@@ -453,11 +462,11 @@ export default function DiffPanel({
     return currentLoadDiffFiles(fileDiff);
   });
   const localBranchRefs = useEnvironmentQuery(
-    isGitSelection && selectedGitScope === "branch" && activeThread && branchDiffPreview.data?.cwd
+    isGitSelection && selectedGitScope === "branch" && activeThread && branchDiffPreviewData?.cwd
       ? vcsEnvironment.listRefs({
           environmentId: activeThread.environmentId,
           input: {
-            cwd: branchDiffPreview.data.cwd,
+            cwd: branchDiffPreviewData.cwd,
             includeMatchingRemoteRefs: true,
             refKind: "local",
             ...(baseRefQuery.trim().length > 0 ? { query: baseRefQuery.trim() } : {}),
@@ -467,11 +476,11 @@ export default function DiffPanel({
       : null,
   );
   const remoteBranchRefs = useEnvironmentQuery(
-    isGitSelection && selectedGitScope === "branch" && activeThread && branchDiffPreview.data?.cwd
+    isGitSelection && selectedGitScope === "branch" && activeThread && branchDiffPreviewData?.cwd
       ? vcsEnvironment.listRefs({
           environmentId: activeThread.environmentId,
           input: {
-            cwd: branchDiffPreview.data.cwd,
+            cwd: branchDiffPreviewData.cwd,
             includeMatchingRemoteRefs: true,
             refKind: "remote",
             ...(baseRefQuery.trim().length > 0 ? { query: baseRefQuery.trim() } : {}),
@@ -506,7 +515,7 @@ export default function DiffPanel({
     loadNextFiles,
   } = useReviewFilePatches({
     environmentId: activeThread?.environmentId,
-    cwd: branchDiffPreview.data?.cwd,
+    cwd: branchDiffPreviewData?.cwd,
     source: lazySource,
     baseRef: lazySource?.baseRef ?? selectedBaseRef,
     ignoreWhitespace: diffIgnoreWhitespace,
