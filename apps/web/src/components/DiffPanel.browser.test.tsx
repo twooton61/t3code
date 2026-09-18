@@ -67,7 +67,11 @@ vi.mock("~/state/vcs", () => ({
 }));
 vi.mock("~/state/entities", () => ({
   useQuietThreadShell: () => state.thread,
-  useProject: () => state.project,
+  useProject: () => ({
+    ...state.project,
+    environmentId: state.thread?.environmentId,
+    id: state.thread?.projectId,
+  }),
   useThreadCheckpointSummaries: () => state.checkpoints,
   useQuietThreadVisibleTurnItems: () => [],
 }));
@@ -251,7 +255,7 @@ it("opens a repository-relative file from a nested project without a remote", as
   using context = setup("origin/orphan");
   state.thread = { ...state.thread!, worktreePath: null };
   const path = "project/back\\slash.txt";
-  const metadata = preview();
+  const metadata = { ...preview(), cwd: state.project.workspaceRoot };
   const source = {
     ...metadata.sources[0]!,
     files: [{ path, previousPath: null, additions: 1, deletions: 0 }],
