@@ -230,6 +230,21 @@ describe("ChatMarkdown workspace file opens", () => {
   });
 });
 
+describe("ChatMarkdown file link labels", () => {
+  it("shows workspace-relative paths instead of ambiguous basenames", async () => {
+    setup();
+    await using screen = await renderText(
+      "[source](/tmp/project/src/index.ts) and [test](/tmp/project/test/index.ts)",
+    );
+
+    expect(
+      [...screen.container.querySelectorAll(".chat-markdown-file-link")].map((chip) =>
+        chip.textContent?.trim(),
+      ),
+    ).toEqual(["project/src/index.ts", "project/test/index.ts"]);
+  });
+});
+
 describe("ChatMarkdown headings", () => {
   it("never gives two headings the same id, even when a suffix matches another heading", async () => {
     setup();
