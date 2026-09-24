@@ -86,7 +86,7 @@ function UserMessageMentionChip(props: {
               cwd={ctx.workspaceRoot}
               theme={ctx.resolvedTheme}
             />
-            <ContextChipLabel>{props.record.label}</ContextChipLabel>
+            <ContextChipLabel>{props.record.path}</ContextChipLabel>
           </ContextChip>
         }
       />
