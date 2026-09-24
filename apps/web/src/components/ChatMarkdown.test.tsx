@@ -653,7 +653,7 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("report.xlsx");
   });
 
-  it("disambiguates Codex citations with the same basename", () => {
+  it("labels Codex citations with the workspace-relative path", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown
         cwd="/tmp/project"
@@ -663,8 +663,8 @@ describe("ChatMarkdown file option chips", () => {
       />,
     );
 
-    expect(html).toContain("index.ts · project/src");
-    expect(html).toContain("index.ts · project/test");
+    expect(html).toContain("project/src/index.ts");
+    expect(html).toContain("project/test/index.ts");
   });
 
   it("preserves rejected citations created by over-indented list recovery", () => {
@@ -892,8 +892,8 @@ describe("ChatMarkdown Windows file links", () => {
         />,
       );
 
-      expect(html).toContain("index.ts · project/src");
-      expect(html).toContain("index.ts · project/test");
+      expect(html).toContain("project/src/index.ts");
+      expect(html).toContain("project/test/index.ts");
     },
   );
 

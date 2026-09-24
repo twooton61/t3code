@@ -66,7 +66,6 @@ import {
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { cn, isMacPlatform } from "~/lib/utils";
-import { basenameOfPath } from "~/pierre-icons";
 import { FileTagChipContent } from "./chat/FileTagChip";
 import { SkillChipIcon } from "./chat/SkillInlineText";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
@@ -238,11 +237,7 @@ function ComposerMentionNodeView({ node }: NodeViewProps) {
       spellCheck={false}
       data-composer-mention-chip="true"
     >
-      <FileTagChipContent
-        path={path}
-        label={basenameOfPath(path)}
-        theme={resolvedThemeFromDocument()}
-      />
+      <FileTagChipContent path={path} label={path} theme={resolvedThemeFromDocument()} />
     </ContextChip>
   );
   return (

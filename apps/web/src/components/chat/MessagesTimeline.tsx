@@ -3902,7 +3902,7 @@ function UserMessageMentionChip(props: {
               kind={inferEntryKindFromPath(props.record.path)}
               theme={ctx.resolvedTheme}
             />
-            <ContextChipLabel>{props.record.label}</ContextChipLabel>
+            <ContextChipLabel>{props.record.path}</ContextChipLabel>
           </ContextChip>
         }
       />
