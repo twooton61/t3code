@@ -16,6 +16,7 @@ import {
   filterSidebarProjectScopeItems,
   filterSidebarV2VisibleThreads,
   formatWorkingDurationLabel,
+  resolveSidebarProjectScopeKeys,
   getFallbackThreadIdAfterDelete,
   getProjectSortTimestamp,
   getSidebarForkParentThreadId,
@@ -1074,6 +1075,39 @@ describe("filterSidebarProjectScopeItems", () => {
   it("returns matching projects in source order and supports no-match results", () => {
     expect(filter("WORK")).toEqual([items[1]]);
     expect(filter("missing")).toEqual([]);
+  });
+});
+
+describe("resolveSidebarProjectScopeKeys", () => {
+  it("replaces the all-projects row with the first picked project", () => {
+    expect(
+      resolveSidebarProjectScopeKeys({ previousKeys: [], selectedValues: ["all", "miami"] }),
+    ).toEqual(["miami"]);
+  });
+
+  it("adds and removes projects from an existing scope", () => {
+    expect(
+      resolveSidebarProjectScopeKeys({
+        previousKeys: ["miami"],
+        selectedValues: ["miami", "dotfiles"],
+      }),
+    ).toEqual(["miami", "dotfiles"]);
+    expect(
+      resolveSidebarProjectScopeKeys({
+        previousKeys: ["miami", "dotfiles"],
+        selectedValues: ["dotfiles"],
+      }),
+    ).toEqual(["dotfiles"]);
+  });
+
+  it("clears the scope when all projects is picked", () => {
+    expect(
+      resolveSidebarProjectScopeKeys({
+        previousKeys: ["miami", "dotfiles"],
+        selectedValues: ["miami", "dotfiles", "all"],
+      }),
+    ).toEqual([]);
+    expect(resolveSidebarProjectScopeKeys({ previousKeys: [], selectedValues: [] })).toEqual([]);
   });
 });
 
