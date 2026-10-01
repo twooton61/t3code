@@ -1494,6 +1494,11 @@ it.layer(
           assert.deepStrictEqual(recovered?.skills, laterSkills);
           assert.deepStrictEqual(recovered?.slashCommands, [COMPACT_SLASH_COMMAND]);
           assert.strictEqual(recovered?.slashCommandsPending, undefined);
+
+          const cleared = yield* registry.clearWorkspaceSnapshots(instanceId);
+          assert.strictEqual(cleared[0]?.workspaceSnapshots, undefined);
+          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+          assert.deepStrictEqual((yield* workspaceOf)?.skills, laterSkills);
         }).pipe(Effect.provide(runtimeServices));
       }),
     );

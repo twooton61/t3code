@@ -1,11 +1,17 @@
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo } from "react";
+import { memo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { usePullRequestsSupported } from "../../state/environments";
+import { useConnectedEnvironmentIds, usePullRequestsSupported } from "../../state/environments";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -23,6 +29,8 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { RefreshIcon } from "../ui/refresh-icon";
+import { toastManager } from "../ui/toast";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
@@ -181,6 +189,40 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/settings" });
   };
 
+  const connectedEnvironmentIds = useConnectedEnvironmentIds();
+  const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const refreshingSkillsRef = useRef(false);
+  const [isRefreshingSkills, setIsRefreshingSkills] = useState(false);
+  const handleRefreshSkillsClick = () => {
+    if (refreshingSkillsRef.current) return;
+    refreshingSkillsRef.current = true;
+    setIsRefreshingSkills(true);
+    void (async () => {
+      const results = await Promise.all(
+        connectedEnvironmentIds.map((environmentId) =>
+          refreshServerProviders({ environmentId, input: { refreshModels: true } }),
+        ),
+      );
+      refreshingSkillsRef.current = false;
+      setIsRefreshingSkills(false);
+      const failure = results.find(
+        (result) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
+      );
+      if (failure?._tag === "Failure") {
+        const error = squashAtomCommandFailure(failure);
+        toastManager.add({
+          type: "error",
+          title: "Could not refresh skills",
+          description: error instanceof Error ? error.message : undefined,
+        });
+        return;
+      }
+      toastManager.add({ type: "success", title: "Skills refreshed" });
+    })();
+  };
+
   const handleUsageClick = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -208,6 +250,11 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             icon={<SettingsIcon />}
             label="Settings"
             onClick={handleSettingsClick}
+          />
+          <SidebarUtilityItem
+            icon={<RefreshIcon refreshing={isRefreshingSkills} />}
+            label="Refresh skills"
+            onClick={handleRefreshSkillsClick}
           />
           {pullRequestsSupported ? (
             <SidebarUtilityItem

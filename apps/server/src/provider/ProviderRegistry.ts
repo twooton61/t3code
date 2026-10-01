@@ -73,6 +73,15 @@ export class ProviderRegistry extends Context.Service<
       readonly fresh?: boolean;
     }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
+    /**
+     * Drop cached per-workspace skills and slash commands for one instance, or
+     * all instances when omitted. Clients that still show that workspace ask
+     * for it again, which rediscovers skills added or edited since.
+     */
+    readonly clearWorkspaceSnapshots: (
+      instanceId?: ProviderInstanceId,
+    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
     readonly getProviderMaintenanceCapabilitiesForInstance: (
       instanceId: ProviderInstanceId,
       provider: ProviderDriverKind,
@@ -1002,8 +1011,27 @@ export const layer = Layer.effect(
       return yield* Fiber.join(claim.scan);
     });
 
+    const clearWorkspaceSnapshots = (instanceId?: ProviderInstanceId) =>
+      Ref.modify(providersRef, (currentProviders) => {
+        const nextProviders = currentProviders.map((provider) => {
+          if (instanceId !== undefined && provider.instanceId !== instanceId) return provider;
+          if (provider.workspaceSnapshots === undefined) return provider;
+          const { workspaceSnapshots: _workspaceSnapshots, ...withoutWorkspaces } = provider;
+          return withoutWorkspaces;
+        });
+        return [[currentProviders, nextProviders] as const, nextProviders];
+      }).pipe(
+        Effect.tap(([previousProviders, nextProviders]) =>
+          haveProvidersChanged(previousProviders, nextProviders)
+            ? PubSub.publish(changesPubSub, nextProviders)
+            : Effect.void,
+        ),
+        Effect.map(([, nextProviders]) => nextProviders),
+      );
+
     return {
       getProviders: Ref.get(providersRef),
+      clearWorkspaceSnapshots,
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
