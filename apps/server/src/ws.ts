@@ -2313,6 +2313,10 @@ const layerWsRpc = (
                   ? providerRegistry.refreshInstance(input.instanceId)
                   : providerRegistry.refresh();
               if (input.refreshModels) {
+                // Workspace skills are discovered once per cwd. An explicit
+                // refresh drops them so open composers rediscover new skills.
+                // Runs before model refreshes so their failures cannot skip it.
+                providers = yield* providerRegistry.clearWorkspaceSnapshots(input.instanceId);
                 const instances = yield* providerInstances.listInstances;
                 for (const instance of instances) {
                   if (

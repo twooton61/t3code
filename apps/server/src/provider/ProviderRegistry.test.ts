@@ -1812,6 +1812,12 @@ it.layer(
             [latestSkills],
           );
 
+          const callsBeforeClear = yield* Ref.get(snapshotCalls);
+          const cleared = yield* registry.clearWorkspaceSnapshots(instanceId);
+          assert.strictEqual(cleared[0]?.workspaceSnapshots, undefined);
+          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+          assert.strictEqual(yield* Ref.get(snapshotCalls), callsBeforeClear + 1);
+
           yield* Ref.set(instancesRef, [rebuiltInstance]);
           yield* PubSub.publish(registryChanges, undefined);
           let rebuilt = yield* registry.getProviders;

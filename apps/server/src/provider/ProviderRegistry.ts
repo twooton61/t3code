@@ -113,6 +113,15 @@ export class ProviderRegistry extends Context.Service<
     }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     /**
+     * Drop cached per-workspace skills and slash commands for one instance, or
+     * all instances when omitted. Clients that still show that workspace ask
+     * for it again, which rediscovers skills added or edited since.
+     */
+    readonly clearWorkspaceSnapshots: (
+      instanceId?: ProviderInstanceId,
+    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    /**
      * Resolve the maintenance capabilities owned by one live provider instance.
      * Falls back to manual-only capabilities when the instance is not live.
      * `fresh` re-derives ownership from the executable instead of the cache.
@@ -1068,8 +1077,27 @@ export const layer = Layer.effect(
       );
     });
 
+    const clearWorkspaceSnapshots = (instanceId?: ProviderInstanceId) =>
+      Ref.modify(providersRef, (currentProviders) => {
+        const nextProviders = currentProviders.map((provider) => {
+          if (instanceId !== undefined && provider.instanceId !== instanceId) return provider;
+          if (provider.workspaceSnapshots === undefined) return provider;
+          const { workspaceSnapshots: _workspaceSnapshots, ...withoutWorkspaces } = provider;
+          return withoutWorkspaces;
+        });
+        return [[currentProviders, nextProviders] as const, nextProviders];
+      }).pipe(
+        Effect.tap(([previousProviders, nextProviders]) =>
+          haveProvidersChanged(previousProviders, nextProviders)
+            ? PubSub.publish(changesPubSub, nextProviders)
+            : Effect.void,
+        ),
+        Effect.map(([, nextProviders]) => nextProviders),
+      );
+
     return {
       getProviders: Ref.get(providersRef),
+      clearWorkspaceSnapshots,
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
