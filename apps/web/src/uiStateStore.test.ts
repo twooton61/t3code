@@ -12,6 +12,7 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setProjectExpanded,
+  setSidebarProjectScopeKeys,
   type UiState,
 } from "./uiStateStore";
 
@@ -19,7 +20,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
-    sidebarProjectScopeKey: null,
+    sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -125,7 +126,7 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      sidebarProjectScopeKey: null,
+      sidebarProjectScopeKeys: [],
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -162,6 +163,24 @@ describe("parsePersistedState", () => {
     expect(resolveProjectExpanded(parsed.projectExpandedById, [projectAKey])).toBe(true);
     expect(resolveProjectExpanded(parsed.projectExpandedById, [projectBKey])).toBe(false);
     expect(resolveProjectExpanded(parsed.projectExpandedById, ["unknown"])).toBe(true);
+  });
+
+  it("stores multiple sidebar project scopes and normalizes them", () => {
+    const scoped = setSidebarProjectScopeKeys(makeUiState(), ["t3code", "dotfiles"]);
+
+    expect(scoped.sidebarProjectScopeKeys).toEqual(["t3code", "dotfiles"]);
+    expect(setSidebarProjectScopeKeys(scoped, ["t3code", "dotfiles"])).toBe(scoped);
+    expect(setSidebarProjectScopeKeys(scoped, ["", "t3code", "t3code"]).sidebarProjectScopeKeys)
+      .toEqual(["t3code"]);
+    expect(setSidebarProjectScopeKeys(scoped, []).sidebarProjectScopeKeys).toEqual([]);
+  });
+
+  it("migrates a legacy single-project sidebar scope", () => {
+    expect(parsePersistedState({ sidebarProjectScopeKey: "t3code" }).sidebarProjectScopeKeys)
+      .toEqual(["t3code"]);
+    expect(parsePersistedState({ sidebarProjectScopeKey: null }).sidebarProjectScopeKeys).toEqual(
+      [],
+    );
   });
 });
 
@@ -230,7 +249,7 @@ describe("uiStateStore persistence", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      sidebarProjectScopeKey: null,
+      sidebarProjectScopeKeys: [],
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -246,14 +265,17 @@ describe("uiStateStore persistence", () => {
   });
 
   it("restores the sidebar project scope across reloads", () => {
-    persistState(makeUiState({ sidebarProjectScopeKey: "github.com/pingdotgg/t3code" }));
+    persistState(
+      makeUiState({ sidebarProjectScopeKeys: ["github.com/pingdotgg/t3code", "dotfiles"] }),
+    );
 
     const persisted = JSON.parse(
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
 
-    expect(parsePersistedState(persisted).sidebarProjectScopeKey).toBe(
+    expect(parsePersistedState(persisted).sidebarProjectScopeKeys).toEqual([
       "github.com/pingdotgg/t3code",
-    );
+      "dotfiles",
+    ]);
   });
 });

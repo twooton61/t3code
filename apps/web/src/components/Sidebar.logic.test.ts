@@ -14,6 +14,7 @@ import {
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveProjectStatusIndicator,
+  resolveSidebarProjectScopeKeys,
   resolveSidebarSweepKeys,
   resolveSidebarThreadStatus,
   resolveSidebarV2TopStatus,
@@ -46,6 +47,26 @@ import {
 import { makeThreadFixture, type ThreadFixtureOverrides } from "../test-fixtures";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("resolveSidebarProjectScopeKeys", () => {
+  it("switches between all projects and multi-project scopes", () => {
+    expect(
+      resolveSidebarProjectScopeKeys({ previousKeys: [], selectedValues: ["all", "miami"] }),
+    ).toEqual(["miami"]);
+    expect(
+      resolveSidebarProjectScopeKeys({
+        previousKeys: ["miami"],
+        selectedValues: ["miami", "dotfiles"],
+      }),
+    ).toEqual(["miami", "dotfiles"]);
+    expect(
+      resolveSidebarProjectScopeKeys({
+        previousKeys: ["miami", "dotfiles"],
+        selectedValues: ["miami", "dotfiles", "all"],
+      }),
+    ).toEqual([]);
+  });
+});
 
 describe("deleteSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;
