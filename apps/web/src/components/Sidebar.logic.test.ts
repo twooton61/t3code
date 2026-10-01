@@ -14,6 +14,7 @@ import {
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveProjectStatusIndicator,
+  resolveSidebarProjectScopeSelectionKeys,
   resolveSidebarSweepKeys,
   resolveSidebarThreadStatus,
   resolveThreadStatusPill,
@@ -54,6 +55,29 @@ import {
 } from "./sidebar/routeReveal";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("resolveSidebarProjectScopeSelectionKeys", () => {
+  it("switches between all projects and multi-project scopes", () => {
+    expect(
+      resolveSidebarProjectScopeSelectionKeys({
+        previousKeys: [],
+        selectedValues: ["all", "miami"],
+      }),
+    ).toEqual(["miami"]);
+    expect(
+      resolveSidebarProjectScopeSelectionKeys({
+        previousKeys: ["miami"],
+        selectedValues: ["miami", "dotfiles"],
+      }),
+    ).toEqual(["miami", "dotfiles"]);
+    expect(
+      resolveSidebarProjectScopeSelectionKeys({
+        previousKeys: ["miami", "dotfiles"],
+        selectedValues: ["miami", "dotfiles", "all"],
+      }),
+    ).toEqual([]);
+  });
+});
 
 describe("deleteSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;

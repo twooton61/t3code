@@ -12,6 +12,7 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setProjectExpanded,
+  setSidebarProjectScopeKeys,
   type UiState,
 } from "./uiStateStore";
 
@@ -162,6 +163,26 @@ describe("parsePersistedState", () => {
     expect(resolveProjectExpanded(parsed.projectExpandedById, [projectAKey])).toBe(true);
     expect(resolveProjectExpanded(parsed.projectExpandedById, [projectBKey])).toBe(false);
     expect(resolveProjectExpanded(parsed.projectExpandedById, ["unknown"])).toBe(true);
+  });
+
+  it("stores multiple sidebar project scopes and normalizes them", () => {
+    const scoped = setSidebarProjectScopeKeys(makeUiState(), ["t3code", "dotfiles"]);
+
+    expect(scoped.sidebarProjectScopeKeys).toEqual(["t3code", "dotfiles"]);
+    expect(setSidebarProjectScopeKeys(scoped, ["t3code", "dotfiles"])).toBe(scoped);
+    expect(
+      setSidebarProjectScopeKeys(scoped, ["", "t3code", "t3code"]).sidebarProjectScopeKeys,
+    ).toEqual(["t3code"]);
+    expect(setSidebarProjectScopeKeys(scoped, []).sidebarProjectScopeKeys).toEqual([]);
+  });
+
+  it("migrates a legacy single-project sidebar scope", () => {
+    expect(
+      parsePersistedState({ sidebarProjectScopeKey: "t3code" }).sidebarProjectScopeKeys,
+    ).toEqual(["t3code"]);
+    expect(parsePersistedState({ sidebarProjectScopeKey: null }).sidebarProjectScopeKeys).toEqual(
+      [],
+    );
   });
 });
 

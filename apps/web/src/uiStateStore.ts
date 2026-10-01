@@ -331,11 +331,15 @@ function setDefaultAdvertisedEndpointKey(state: UiState, key: string | null): Ui
   };
 }
 
-function setSidebarProjectScopeKeys(state: UiState, projectKeys: readonly string[]): UiState {
+export function setSidebarProjectScopeKeys(
+  state: UiState,
+  projectKeys: readonly string[],
+): UiState {
   const nextKeys = sanitizeStringArray(projectKeys);
+  const currentKeys = state.sidebarProjectScopeKeys;
   if (
-    nextKeys.length === state.sidebarProjectScopeKeys.length &&
-    nextKeys.every((key, index) => key === state.sidebarProjectScopeKeys[index])
+    currentKeys.length === nextKeys.length &&
+    currentKeys.every((key, index) => key === nextKeys[index])
   ) {
     return state;
   }
