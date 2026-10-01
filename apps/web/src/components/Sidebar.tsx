@@ -65,14 +65,7 @@ import {
   type OlderSettledScope,
 } from "@t3tools/client-runtime/state/threads";
 
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  FolderIcon,
-  ListFilterIcon,
-  PlusIcon,
-  SettingsIcon,
-} from "lucide-react";
+import { ChevronDownIcon, FolderIcon, ListFilterIcon, PlusIcon, SettingsIcon } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -192,6 +185,7 @@ import {
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
   reduceSidebarProjectScopeMenuState,
+  resolveSidebarProjectScopeSelectionKeys,
   resolveAdjacentThreadId,
   resolveSidebarSweepKeys,
   resolveSidebarDropTarget,
@@ -241,6 +235,7 @@ import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { Button } from "./ui/button";
 import { isProjectPinShortcut, ProjectPinButton } from "./ProjectPinButton";
+import { Input } from "./ui/input";
 import {
   Combobox,
   ComboboxEmpty,
@@ -471,15 +466,17 @@ function useSidebarThreads(input: {
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const [settledSearchQuery, setSettledSearchQuery] = useState("");
+  const settledTailScopeKey = `${projectScopeKey ?? ""}\0${settledSearchQuery.trim()}`;
   const [settledTail, setSettledTail] = useState({
-    scopeKey: projectScopeKey,
+    scopeKey: settledTailScopeKey,
     count: SETTLED_TAIL_INITIAL_COUNT,
   });
-  if (settledTail.scopeKey !== projectScopeKey) {
-    setSettledTail({ scopeKey: projectScopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
+  if (settledTail.scopeKey !== settledTailScopeKey) {
+    setSettledTail({ scopeKey: settledTailScopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
   }
   const settledVisibleCount =
-    settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
+    settledTail.scopeKey === settledTailScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const partition = partitionSidebarThreads({
     threads,
@@ -495,19 +492,35 @@ function useSidebarThreads(input: {
 
   const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
     partition;
+  const isSearchingSettled = settledShelfExpanded && settledSearchQuery.trim().length > 0;
+  const settledSearchScopes = olderSettledScopes(useConnectedEnvironmentIds(), scopedProjectKeys);
+  const settledSearch = useThreadSearch(
+    settledSearchScopes.map((scope) => scope.environmentId),
+    settledShelfExpanded ? settledSearchQuery : "",
+    {
+      titlesOnly: true,
+      ...(scopedProjectKeys === null
+        ? {}
+        : { projectIds: settledSearchScopes.flatMap((scope) => scope.projectIds ?? []) }),
+    },
+  );
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
-    expanded: settledShelfExpanded,
+    expanded: settledShelfExpanded && !isSearchingSettled,
     visibleCount: settledVisibleCount,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
   const settledCount =
     settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const matchedSettledThreads = isSearchingSettled
+    ? searchSidebarThreads(settledThreads, settledSearchQuery).titleMatches
+    : listedSettledThreads;
   const visibleSettledThreads = (() => {
-    const visible = listedSettledThreads.slice(0, settledVisibleCount);
+    const visible = matchedSettledThreads.slice(0, settledVisibleCount);
     if (
+      !isSearchingSettled &&
       routeRowThreadKey !== null &&
       !visible.some((thread) => threadShellKey(thread) === routeRowThreadKey)
     ) {
@@ -516,7 +529,7 @@ function useSidebarThreads(input: {
       );
       if (routeThread !== undefined) visible.push(routeThread);
     }
-    return visible.length === settledThreads.length ? settledThreads : visible;
+    return visible;
   })();
   const renderedSettledThreads = settledShelfExpanded
     ? visibleSettledThreads
@@ -580,7 +593,15 @@ function useSidebarThreads(input: {
     settledVisibleCount,
     settledCount,
     olderSettledShelf,
-    hiddenSettledCount: Math.max(0, settledCount - visibleSettledThreads.length),
+    settledSearchQuery,
+    setSettledSearchQuery,
+    isSearchingSettled,
+    settledSearchPending: settledSearch.isPending,
+    hiddenSettledCount: Math.max(
+      0,
+      (isSearchingSettled ? matchedSettledThreads.length : settledCount) -
+        visibleSettledThreads.length,
+    ),
     showMoreSettled: () =>
       setSettledTail((current) => ({
         scopeKey: current.scopeKey,
@@ -847,19 +868,6 @@ function useSidebarLookups() {
     projectGroupByScopeKey,
     projectScopeItems,
   };
-}
-
-function ProjectScopeRowIcon(props: { isSelected: boolean; children: ReactNode }) {
-  return (
-    <span className="relative flex shrink-0">
-      {props.children}
-      {props.isSelected ? (
-        <span className="pointer-events-none absolute -right-1 -bottom-1 grid size-3 place-items-center rounded-full bg-primary ring-2 ring-popover">
-          <CheckIcon className="size-2 text-primary-foreground" strokeWidth={4} aria-hidden />
-        </span>
-      ) : null}
-    </span>
-  );
 }
 
 function canOperateThreads(
@@ -1131,7 +1139,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1169,11 +1176,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     (item) => item.value,
     projectScopeMenuState.open,
   );
-  const selectedProjectScopeItem =
-    projectScopeKeys.length > 1
-      ? null
-      : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
-        projectScopeItems[0]!);
+  const selectedProjectScopeItems = (() => {
+    const scoped = projectScopeItems.filter((item) => projectScopeKeys.includes(item.value));
+    return scoped.length > 0 ? scoped : [projectScopeItems[0]!];
+  })();
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectScopeItems,
     query: projectScopeMenuState.query,
@@ -1312,6 +1318,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settledCount,
     olderSettledShelf,
     hiddenSettledCount,
+    settledSearchQuery,
+    setSettledSearchQuery,
+    isSearchingSettled,
+    settledSearchPending,
     showMoreSettled,
     settledShelfExpanded,
     toggleSettledShelf,
@@ -1334,7 +1344,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
-    projectScopeKey,
+    projectScopeKey: projectScopeKeys.length > 0 ? projectScopeKeys.join("\0") : null,
     scopedProjectKeys,
     serverConfigs,
     connectedEnvironmentIds,
@@ -2688,11 +2698,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         switch (clicked.value) {
           case "filter-by-project":
             if (threadProjectGroup) {
-              setProjectScopeKeys(
-                projectScopeKeys.includes(threadProjectGroup.projectKey)
-                  ? []
-                  : [threadProjectGroup.projectKey],
-              );
+              const isOnlyScope =
+                projectScopeKeys.length === 1 &&
+                projectScopeKeys[0] === threadProjectGroup.projectKey;
+              setProjectScopeKeys(isOnlyScope ? [] : [threadProjectGroup.projectKey]);
             }
             return;
           case "project-settings":
@@ -2973,6 +2982,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
+                  multiple
                   items={projectScopeItems}
                   filteredItems={filteredProjectScopeItems}
                   autoHighlight
@@ -2987,25 +2997,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   onItemHighlighted={(item) => {
                     highlightedProjectScopeKeyRef.current = item?.value ?? null;
                   }}
-                  value={selectedProjectScopeItem}
-                  onValueChange={(item, eventDetails) => {
+                  value={selectedProjectScopeItems}
+                  onValueChange={(items) => {
                     if (suppressNextScopeChangeRef.current) {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
-                    if (item.value === "all") {
-                      setProjectScopeKeys([]);
-                    } else if (
-                      eventDetails.event instanceof MouseEvent &&
-                      eventDetails.event.shiftKey
-                    ) {
-                      // Canceling skips Base UI's commit, which would freeze the search query, and its close.
-                      eventDetails.cancel();
-                      toggleProjectScopeKey(item.value);
-                    } else {
-                      setProjectScopeKeys([item.value]);
-                    }
+                    setProjectScopeKeys(
+                      resolveSidebarProjectScopeSelectionKeys({
+                        previousKeys: projectScopeKeys,
+                        selectedValues: items.map((item) => item.value),
+                      }),
+                    );
                   }}
                 >
                   <ComboboxTrigger
@@ -3036,7 +3039,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       </span>
                     ) : scopedProjectGroups[0] ? (
                       <span className="flex shrink-0">
-                        <ProjectFavicon project={scopedProjectGroups[0]} className="size-4" />
+                        <ProjectFavicon project={scopedProjectGroups[0]!} className="size-4" />
                       </span>
                     ) : (
                       <ListFilterIcon className="size-4" />
@@ -3100,29 +3103,29 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     <ComboboxList aria-multiselectable>
                       {(item: (typeof projectScopeItems)[number]) => {
                         const project = projectGroupByScopeKey.get(item.value) ?? null;
-                        const isSelected = project
-                          ? projectScopeKeys.includes(item.value)
-                          : projectScopeKeys.length === 0;
                         return (
                           <ComboboxItem
                             key={item.value}
-                            hideIndicator
+                            indicator="checkbox"
                             value={item}
-                            aria-selected={isSelected}
-                            // The icon badge marks selection; Base UI's single value would shade one row.
-                            data-selected={undefined}
                             onContextMenu={(event) => {
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
-                            <ProjectScopeRowIcon isSelected={isSelected}>
-                              {project ? (
-                                <ProjectFavicon project={project} className="size-4 shrink-0" />
-                              ) : (
-                                <FolderIcon className="size-4 shrink-0" />
-                              )}
-                            </ProjectScopeRowIcon>
-                            <span className="min-w-0 truncate text-sm">{item.label}</span>
+                            {project ? (
+                              <ProjectFavicon project={project} className="size-4 shrink-0" />
+                            ) : (
+                              <FolderIcon className="size-4 shrink-0" />
+                            )}
+                            <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            {project && canPinProject(project) ? (
+                              <ProjectPinButton
+                                name={project.displayName}
+                                pinned={project.pinned}
+                                shortcutLabel={shortcutLabelForCommand(keybindings, "thread.pin")}
+                                onToggle={() => toggleProjectGroupPin(project)}
+                              />
+                            ) : null}
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -3612,6 +3615,56 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 }}
                               />,
                             );
+                            if (settledShelfExpanded) {
+                              items.push(
+                                <li
+                                  key="settled-search"
+                                  className="list-none px-2 py-1"
+                                  data-thread-selection-safe
+                                >
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      size="compact"
+                                      type="search"
+                                      aria-label="Search settled threads"
+                                      placeholder="Search settled threads…"
+                                      value={settledSearchQuery}
+                                      onChange={(event) =>
+                                        setSettledSearchQuery(event.currentTarget.value)
+                                      }
+                                      onKeyDown={(event) => {
+                                        event.stopPropagation();
+                                        if (event.key === "Escape") {
+                                          event.preventDefault();
+                                          setSettledSearchQuery("");
+                                        }
+                                      }}
+                                    />
+                                    {isSearchingSettled ? (
+                                      <Button
+                                        variant="ghost-muted"
+                                        size="compact"
+                                        aria-label="Clear settled thread search"
+                                        onClick={() => setSettledSearchQuery("")}
+                                      >
+                                        Clear
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                  {isSearchingSettled &&
+                                  (settledSearchPending || renderedSettledThreads.length === 0) ? (
+                                    <div
+                                      role="status"
+                                      className="px-1 py-2 text-xs text-sidebar-muted-foreground"
+                                    >
+                                      {settledSearchPending
+                                        ? "Searching…"
+                                        : "No settled threads found"}
+                                    </div>
+                                  ) : null}
+                                </li>,
+                              );
+                            }
                             break;
                           case "settled-placeholder":
                             items.push(

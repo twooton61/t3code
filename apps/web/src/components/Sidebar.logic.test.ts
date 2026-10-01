@@ -13,6 +13,7 @@ import {
   hasUnseenCompletion,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
+  resolveSidebarProjectScopeSelectionKeys,
   resolveSidebarSweepKeys,
   resolveSidebarRowStatus,
   resolveSidebarThreadStatus,
@@ -60,6 +61,29 @@ import {
 } from "./sidebar/routeReveal";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("resolveSidebarProjectScopeSelectionKeys", () => {
+  it("switches between all projects and multi-project scopes", () => {
+    expect(
+      resolveSidebarProjectScopeSelectionKeys({
+        previousKeys: [],
+        selectedValues: ["all", "miami"],
+      }),
+    ).toEqual(["miami"]);
+    expect(
+      resolveSidebarProjectScopeSelectionKeys({
+        previousKeys: ["miami"],
+        selectedValues: ["miami", "dotfiles"],
+      }),
+    ).toEqual(["miami", "dotfiles"]);
+    expect(
+      resolveSidebarProjectScopeSelectionKeys({
+        previousKeys: ["miami", "dotfiles"],
+        selectedValues: ["miami", "dotfiles", "all"],
+      }),
+    ).toEqual([]);
+  });
+});
 
 describe("deleteSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;
@@ -364,6 +388,9 @@ describe("searchSidebarThreads", () => {
         contentMatches: [threads[1]],
       },
     );
+    expect(searchSidebarThreads(threads, "workspcae", undefined, now).titleMatches).toEqual([
+      threads[0],
+    ]);
   });
 });
 

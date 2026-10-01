@@ -1,5 +1,5 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import { ChevronsUpDownIcon, SearchIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronsUpDownIcon, SearchIcon, XIcon } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "~/lib/utils";
@@ -190,11 +190,14 @@ function ComboboxItem({
   children,
   hideIndicator: _hideIndicator = false,
   selectedFill = true,
+  indicator = "none",
   ...props
 }: ComboboxPrimitive.Item.Props & {
   hideIndicator?: boolean;
   /** Off for rows that mark selection themselves, so a fill only means hover or highlight. */
   selectedFill?: boolean;
+  /** "checkbox" leads the row with a box that is checked while the item is selected, for multi-select lists. */
+  indicator?: "none" | "checkbox";
 }) {
   return (
     <ComboboxPrimitive.Item
@@ -210,6 +213,15 @@ function ComboboxItem({
         className="flex min-w-0 flex-1 items-center gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground"
         data-slot="combobox-item-content"
       >
+        {indicator === "checkbox" ? (
+          <span
+            aria-hidden="true"
+            className="flex size-4 shrink-0 items-center justify-center rounded-[.25rem] border border-input text-transparent in-data-selected:border-primary in-data-selected:bg-primary in-data-selected:text-primary-foreground"
+            data-slot="combobox-item-checkbox"
+          >
+            <CheckIcon className="size-3 text-current" strokeWidth={3} />
+          </span>
+        ) : null}
         {children}
       </div>
     </ComboboxPrimitive.Item>
