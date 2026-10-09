@@ -1753,6 +1753,51 @@ body {
   --desktop-window-right-resize-inset: 6px;
 }
 
+/* The Linux desktop window is transparent, so app surfaces let the
+   compositor (and its blur) show through. Overlays such as popovers and
+   dialogs keep their opaque tokens, and text is never faded. The body stays
+   clear: the sidebar and main surfaces already cover the window, and a second
+   translucent layer under them would stack to near-opaque. */
+.electron-linux {
+  --linux-surface-alpha: 75%;
+}
+
+/* The theme is `@theme inline`, so these utilities compile to the raw
+   tokens and overriding `--color-*` would not reach them. */
+.electron-linux .bg-background {
+  background-color: color-mix(in srgb, var(--background) var(--linux-surface-alpha), transparent);
+}
+
+.electron-linux .bg-sidebar {
+  background-color: color-mix(in srgb, var(--sidebar) var(--linux-surface-alpha), transparent);
+}
+
+.electron-linux .bg-card {
+  background-color: color-mix(in srgb, var(--card) var(--linux-surface-alpha), transparent);
+}
+
+/* !important beats the inline chrome color that the boot script and
+   syncBrowserChromeTheme write on html and body to avoid a flash. */
+.electron-linux,
+.electron-linux body {
+  background-color: transparent !important;
+}
+
+/* Layout wrappers repeat their parent's fill (the chat column nests three
+   bg-background layers), which would stack back to opaque. Only plain layout
+   elements are cleared: ui controls carry a data-slot, and sticky or
+   positioned elements keep their fill because they cover scrolled content. */
+.electron-linux
+  :is(.bg-background, .bg-sidebar)
+  :is(div, header, main, section):is(.bg-background, .bg-sidebar):not(
+    [data-slot],
+    .sticky,
+    .absolute,
+    .fixed
+  ) {
+  background-color: transparent;
+}
+
 /* App-chrome grain. Baked into each surface's own background (behind
    content) rather than a fixed overlay on top: a full-viewport overlay
    forces the compositor to re-blend every frame any animation produces,
