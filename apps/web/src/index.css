@@ -1677,6 +1677,25 @@ body {
   --desktop-window-right-resize-inset: 6px;
 }
 
+/* The Linux desktop window is transparent, so app surfaces let the
+   compositor (and its blur) show through. Overlays such as popovers and
+   dialogs keep their opaque tokens, and text is never faded. */
+.electron-linux {
+  --linux-surface-alpha: 82%;
+  --color-background: color-mix(in srgb, var(--background) var(--linux-surface-alpha), transparent);
+  --color-sidebar: color-mix(in srgb, var(--sidebar) var(--linux-surface-alpha), transparent);
+  --color-card: color-mix(in srgb, var(--card) var(--linux-surface-alpha), transparent);
+  background-color: transparent;
+}
+
+.electron-linux body {
+  background-color: color-mix(
+    in srgb,
+    var(--app-chrome-background) var(--linux-surface-alpha),
+    transparent
+  );
+}
+
 /* App-chrome grain. Baked into each surface's own background (behind
    content) rather than a fixed overlay on top: a full-viewport overlay
    forces the compositor to re-blend every frame any animation produces,
