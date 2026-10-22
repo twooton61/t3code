@@ -23,8 +23,8 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo } from "react";
-import { GaugeIcon } from "lucide-react";
+import { memo, useId } from "react";
+import { GaugeIcon, SlidersHorizontalIcon } from "lucide-react";
 import {
   Menu,
   MenuGroup,
@@ -45,6 +45,15 @@ import {
   ComposerControlIcon,
   type ComposerControlSize,
 } from "./ComposerControl";
+import {
+  EFFORT_DESCRIPTOR_IDS,
+  EFFORT_GEAR_TEXT_CLASS,
+  EffortGearMeter,
+  EffortShifter,
+  resolveEffortGear,
+  resolveSpeedToggle,
+  STANDARD_GEAR_EFFORTS,
+} from "./effortGear";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
@@ -324,6 +333,57 @@ interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
 }
 
+function useTraitsChange({
+  provider,
+  instanceId,
+  model,
+  selected,
+  onPromptEdit,
+  persistence,
+}: {
+  provider: ProviderDriverKind;
+  instanceId: ProviderInstanceId | undefined;
+  model: string | null | undefined;
+  selected: ReturnType<typeof getTraitsSectionVisibility>;
+  onPromptEdit: TraitsMenuContentProps["onPromptEdit"];
+  persistence: TraitsPersistence;
+}) {
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
+    if ("onModelOptionsChange" in persistence) {
+      persistence.onModelOptionsChange(nextOptions);
+      return;
+    }
+    const threadTarget = persistence.threadRef ?? persistence.draftId;
+    if (!threadTarget) return;
+    setProviderModelOptions(threadTarget, provider, nextOptions, {
+      ...(instanceId ? { instanceId } : {}),
+      model,
+      persistSticky: true,
+    });
+  };
+  const handleValueChange = (descriptorId: string, value: string | boolean) => {
+    updateModelOptions(
+      buildProviderOptionSelectionsFromDescriptors(
+        replaceDescriptorCurrentValue(selected.descriptors, descriptorId, value),
+      ),
+    );
+  };
+  const handleSelectChange = (
+    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+    value: string,
+  ) => {
+    const change = getTraitSelectChange(selected, descriptor, "", value);
+    if (!change) return;
+    onPromptEdit?.(
+      (prompt) => getTraitSelectChange(selected, descriptor, prompt, value)?.prompt ?? prompt,
+    );
+    if ("modelOptions" in change) updateModelOptions(change.modelOptions);
+  };
+
+  return { handleSelectChange, handleValueChange };
+}
+
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   provider,
   instanceId,
@@ -335,26 +395,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
+  excludedDescriptorIds,
   ...persistence
-}: TraitsMenuContentProps & TraitsPersistence) {
+}: TraitsMenuContentProps & TraitsPersistence & { excludedDescriptorIds?: ReadonlyArray<string> }) {
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
-  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
-  const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
-    if ("onModelOptionsChange" in persistence) {
-      persistence.onModelOptionsChange(nextOptions);
-      return;
-    }
-    const threadTarget = persistence.threadRef ?? persistence.draftId;
-    if (!threadTarget) {
-      return;
-    }
-    setProviderModelOptions(threadTarget, provider, nextOptions, {
-      ...(instanceId ? { instanceId } : {}),
-      model,
-      persistSticky: true,
-    });
-  };
   const selected = getTraitsSectionVisibility({
     provider,
     models,
@@ -366,30 +411,29 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   });
   const {
     descriptors,
-    selectDescriptors,
-    booleanDescriptors,
+    selectDescriptors: allSelectDescriptors,
+    booleanDescriptors: allBooleanDescriptors,
     primarySelectDescriptor,
     ultrathinkPromptControlled,
     ultrathinkInBodyText,
     hasAnyControls,
     modelIsUnavailable,
   } = selected;
-  const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
-    updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
-  };
+  const { handleSelectChange, handleValueChange } = useTraitsChange({
+    provider,
+    instanceId,
+    model,
+    selected,
+    onPromptEdit,
+    persistence,
+  });
 
-  const handleSelectChange = (
-    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
-    value: string,
-  ) => {
-    // Whether a pick applies, and the options it writes, do not depend on the prompt text.
-    const change = getTraitSelectChange(selected, descriptor, "", value);
-    if (!change) return;
-    onPromptEdit?.(
-      (prompt) => getTraitSelectChange(selected, descriptor, prompt, value)?.prompt ?? prompt,
-    );
-    if ("modelOptions" in change) updateModelOptions(change.modelOptions);
-  };
+  const selectDescriptors = allSelectDescriptors.filter(
+    (descriptor) => !excludedDescriptorIds?.includes(descriptor.id),
+  );
+  const booleanDescriptors = allBooleanDescriptors.filter(
+    (descriptor) => !excludedDescriptorIds?.includes(descriptor.id),
+  );
 
   if (!hasAnyControls) {
     return null;
@@ -428,6 +472,15 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
             ? "ultrathink"
             : (getDescriptorStringValue(descriptor, modelSelection, reportedModelSelection) ?? "");
+        const effortLocked = ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id;
+        const choices = selectableProviderOptionChoices(descriptor);
+        const gearOptions = EFFORT_DESCRIPTOR_IDS.includes(descriptor.id)
+          ? choices.filter((option) => STANDARD_GEAR_EFFORTS.has(option.id))
+          : [];
+        const showGearshift = gearOptions.length >= 2;
+        const listOptions = showGearshift
+          ? choices.filter((option) => !STANDARD_GEAR_EFFORTS.has(option.id))
+          : choices;
 
         return (
           <div key={descriptor.id}>
@@ -436,7 +489,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
                 {descriptor.label}
               </div>
-              {ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id ? (
+              {effortLocked ? (
                 <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
                   Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change this
                   option.
@@ -446,13 +499,46 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
-                {selectableProviderOptionChoices(descriptor).map((option) => (
+                {showGearshift ? (
+                  <div className="flex items-stretch gap-1">
+                    {gearOptions.map((option) => {
+                      const gear = resolveEffortGear(option.id) ?? 1;
+                      const isSelected = option.id === selectedValue;
+                      return (
+                        <MenuRadioItem
+                          key={option.id}
+                          value={option.id}
+                          hideIndicator
+                          closeOnClick
+                          disabled={effortLocked}
+                          aria-label={option.label}
+                          className="flex-1"
+                        >
+                          <span className="flex min-w-14 flex-col items-center gap-1 py-1">
+                            <EffortGearMeter gear={gear} size="lg" muted={!isSelected} />
+                            <span
+                              className={cn(
+                                "whitespace-nowrap text-xs",
+                                isSelected
+                                  ? cn("font-semibold", EFFORT_GEAR_TEXT_CLASS[gear])
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {option.label}
+                            </span>
+                          </span>
+                        </MenuRadioItem>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {listOptions.map((option) => (
                   <MenuRadioItem
                     key={option.id}
                     value={option.id}
                     hideIndicator
                     closeOnClick
-                    disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
+                    disabled={effortLocked}
                   >
                     <span className="flex w-full min-w-0 flex-col">
                       <span className="flex min-w-0 items-center gap-1">
@@ -484,11 +570,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               </div>
               <MenuRadioGroup
                 value={selectedValue}
-                onValueChange={(value) => {
-                  updateDescriptors(
-                    replaceDescriptorCurrentValue(descriptors, descriptor.id, value === "on"),
-                  );
-                }}
+                onValueChange={(value) => handleValueChange(descriptor.id, value === "on")}
               >
                 {(["on", "off"] as const).map((value) => (
                   <MenuRadioItem key={value} value={value} hideIndicator closeOnClick>
@@ -518,7 +600,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   allowPromptInjectedEffort = true,
   planModeEnabled,
   triggerClassName,
-  isComposerOwned,
+  isComposerOwned = false,
   size = "sm",
   hidden = false,
   disabled = false,
@@ -531,16 +613,30 @@ export const TraitsPicker = memo(function TraitsPicker({
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden || disabled);
-  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
-    getTraitsSectionVisibility({
-      provider,
-      models,
-      model,
-      promptUltrathink,
-      modelOptions,
-      allowPromptInjectedEffort,
-      planModeEnabled,
-    });
+  const selected = getTraitsSectionVisibility({
+    provider,
+    models,
+    model,
+    promptUltrathink,
+    modelOptions,
+    allowPromptInjectedEffort,
+    planModeEnabled,
+  });
+  const {
+    descriptors,
+    primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    ultrathinkInBodyText,
+    modelIsUnavailable,
+  } = selected;
+  const { handleSelectChange, handleValueChange } = useTraitsChange({
+    provider,
+    instanceId,
+    model,
+    selected,
+    onPromptEdit,
+    persistence,
+  });
   if (
     !shouldRenderTraitsControls({
       provider,
@@ -555,6 +651,7 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
+  const speedToggle = resolveSpeedToggle(descriptors);
   const { label: triggerLabel } = buildTraitsTriggerDisplay({
     provider,
     descriptors,
@@ -562,75 +659,215 @@ export const TraitsPicker = memo(function TraitsPicker({
     ultrathinkPromptControlled,
     modelSelection: instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
     reportedModelSelection,
+    includeSpeed: speedToggle?.on !== true,
   });
   const isCodexStyle = provider === "codex";
+  const effortDescriptor = selected.selectDescriptors.find((descriptor) =>
+    EFFORT_DESCRIPTOR_IDS.includes(descriptor.id),
+  );
+  const effort =
+    ultrathinkPromptControlled && effortDescriptor?.id === primarySelectDescriptor?.id
+      ? "ultrathink"
+      : getDescriptorStringValue(
+          effortDescriptor ?? null,
+          instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
+          reportedModelSelection,
+        );
+  const effortGear = resolveEffortGear(effort);
+  const gearGates = effortDescriptor
+    ? selectableProviderOptionChoices(effortDescriptor).filter(
+        (option) =>
+          allowPromptInjectedEffort || !effortDescriptor.promptInjectedValues?.includes(option.id),
+      )
+    : [];
+  const hasShifter = !modelIsUnavailable && effortDescriptor && gearGates.length >= 2;
+  const inlineDescriptorIds = hasShifter
+    ? [
+        effortDescriptor.id,
+        ...descriptors
+          .filter(
+            (descriptor) =>
+              descriptor.id === speedToggle?.descriptorId &&
+              (descriptor.type === "boolean" || descriptor.options.length <= 2),
+          )
+          .map((descriptor) => descriptor.id),
+      ]
+    : [];
+  const hasMenu = descriptors.some((descriptor) => !inlineDescriptorIds.includes(descriptor.id));
+  const menuLabel = hasShifter ? "Model options" : triggerLabel;
+  const triggerIcon = hasShifter ? (
+    <ComposerControlIcon icon={SlidersHorizontalIcon} size={size} />
+  ) : effortGear ? (
+    <EffortGearMeter gear={effortGear} size={size} />
+  ) : (
+    <ComposerControlIcon icon={GaugeIcon} size={size} />
+  );
+  const triggerLabelClassName =
+    !hasShifter && effortGear ? EFFORT_GEAR_TEXT_CLASS[effortGear] : undefined;
+  const speedButton = speedToggle ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <ComposerControl
+            disabled={disabled}
+            aria-label="Fast mode"
+            aria-pressed={speedToggle.on}
+            size={size}
+            className="px-0"
+            onClick={() =>
+              handleValueChange(
+                speedToggle.descriptorId,
+                speedToggle.on ? speedToggle.offValue : speedToggle.onValue,
+              )
+            }
+          />
+        }
+      >
+        <NosBadge on={speedToggle.on} />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{speedToggle.on ? "Fast mode on" : "Fast mode off"}</TooltipPopup>
+    </Tooltip>
+  ) : null;
 
   return (
-    <Menu
-      open={isMenuOpen}
-      onOpenChange={(open) => {
-        setIsMenuOpen(open && !disabled);
-      }}
-    >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger
+    <div className={cn("flex items-center gap-1", isCodexStyle ? "min-w-0 shrink" : "shrink-0")}>
+      {hasShifter ? (
+        <EffortShifter
+          gates={gearGates}
+          effort={effort}
+          disabled={disabled || ultrathinkInBodyText}
+          size={size}
+          isComposerOwned={isComposerOwned}
+          onShift={(value) => handleSelectChange(effortDescriptor, value)}
+        />
+      ) : null}
+      {hasMenu ? (
+        <Menu
+          open={isMenuOpen}
+          onOpenChange={(open) => {
+            setIsMenuOpen(open && !disabled);
+          }}
+        >
+          <Tooltip>
+            <TooltipTrigger
               render={
-                <ComposerControl
-                  disabled={disabled}
-                  aria-label={triggerLabel}
-                  data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
-                  size={size}
-                  className={cn(
-                    isCodexStyle
-                      ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap sm:max-w-48"
-                      : "shrink-0 whitespace-nowrap",
-                    triggerClassName,
-                  )}
+                <MenuTrigger
+                  render={
+                    <ComposerControl
+                      disabled={disabled}
+                      aria-label={menuLabel}
+                      data-composer-shortcut={
+                        isComposerOwned && !hasShifter ? "composer.effort" : undefined
+                      }
+                      size={size}
+                      className={cn(
+                        isCodexStyle
+                          ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap sm:max-w-48"
+                          : "shrink-0 whitespace-nowrap",
+                        triggerClassName,
+                      )}
+                    />
+                  }
                 />
               }
-            />
-          }
-        >
-          {isCodexStyle ? (
-            <span
-              className={cn(
-                "flex min-w-0 w-full items-center",
-                size === "xs" ? "gap-1" : "gap-1.5",
-              )}
             >
-              <ComposerControlIcon icon={GaugeIcon} size={size} />
-              <span data-composer-control-label className="min-w-0 truncate">
-                {triggerLabel}
-              </span>
-              <ComposerControlChevron size={size} />
-            </span>
-          ) : (
-            <>
-              <ComposerControlIcon icon={GaugeIcon} size={size} />
-              <span data-composer-control-label>{triggerLabel}</span>
-              <ComposerControlChevron size={size} />
-            </>
-          )}
-        </TooltipTrigger>
-        <TooltipPopup side="top">{triggerLabel}</TooltipPopup>
-      </Tooltip>
-      <MenuPopup align="start" {...(isComposerOwned ? composerFloatingLayerProps : {})}>
-        <TraitsMenuContent
-          provider={provider}
-          {...(instanceId ? { instanceId } : {})}
-          models={models}
-          model={model}
-          promptUltrathink={promptUltrathink}
-          {...(onPromptEdit ? { onPromptEdit } : {})}
-          modelOptions={modelOptions}
-          reportedModelSelection={reportedModelSelection}
-          allowPromptInjectedEffort={allowPromptInjectedEffort}
-          planModeEnabled={planModeEnabled}
-          {...persistence}
-        />
-      </MenuPopup>
-    </Menu>
+              {hasShifter ? (
+                triggerIcon
+              ) : isCodexStyle ? (
+                <span
+                  className={cn(
+                    "flex min-w-0 w-full items-center",
+                    size === "xs" ? "gap-1" : "gap-1.5",
+                  )}
+                >
+                  {triggerIcon}
+                  <span
+                    data-composer-control-label
+                    className={cn("min-w-0 truncate", triggerLabelClassName)}
+                  >
+                    {triggerLabel}
+                  </span>
+                  <ComposerControlChevron size={size} />
+                </span>
+              ) : (
+                <>
+                  {triggerIcon}
+                  <span data-composer-control-label className={triggerLabelClassName}>
+                    {triggerLabel}
+                  </span>
+                  <ComposerControlChevron size={size} />
+                </>
+              )}
+            </TooltipTrigger>
+            <TooltipPopup side="top">{menuLabel}</TooltipPopup>
+          </Tooltip>
+          <MenuPopup align="start" {...(isComposerOwned ? composerFloatingLayerProps : {})}>
+            <TraitsMenuContent
+              provider={provider}
+              {...(instanceId ? { instanceId } : {})}
+              models={models}
+              model={model}
+              promptUltrathink={promptUltrathink}
+              {...(onPromptEdit ? { onPromptEdit } : {})}
+              modelOptions={modelOptions}
+              reportedModelSelection={reportedModelSelection}
+              allowPromptInjectedEffort={allowPromptInjectedEffort}
+              planModeEnabled={planModeEnabled}
+              {...persistence}
+              excludedDescriptorIds={inlineDescriptorIds}
+            />
+          </MenuPopup>
+        </Menu>
+      ) : null}
+      {speedButton}
+    </div>
   );
 });
+
+/** Red NOS plate with the arrow off the N, drawn as a vector. */
+function NosBadge({ on }: { on: boolean }) {
+  const ledId = useId();
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 48 20"
+      className="size-auto h-5.5 w-auto sm:h-4.5"
+      style={
+        on
+          ? {
+              filter:
+                "drop-shadow(0 0 2px var(--color-red-500)) drop-shadow(0 0 5px color-mix(in srgb, var(--color-red-500) 70%, transparent))",
+            }
+          : undefined
+      }
+    >
+      <radialGradient id={ledId}>
+        <stop offset="0%" stopColor="var(--color-red-300)" />
+        <stop offset="45%" stopColor="var(--color-red-500)" />
+        <stop offset="100%" stopColor="var(--color-red-600)" />
+      </radialGradient>
+      <rect
+        x="0.5"
+        y="0.5"
+        width="47"
+        height="19"
+        rx="4.5"
+        fill={on ? `url(#${CSS.escape(ledId)})` : "var(--color-red-900)"}
+        stroke="var(--color-red-700)"
+        strokeWidth="1"
+        vectorEffect="non-scaling-stroke"
+      />
+      <g
+        fill="var(--color-white)"
+        stroke="var(--color-black)"
+        strokeWidth="1.1"
+        strokeLinejoin="miter"
+        paintOrder="stroke"
+      >
+        <path d="M7 16V3.5H38V2L42 4.75L38 7.5V6H10L14.5 12V7H17V16H14.5L9.5 9.5V16Z" />
+        <path fillRule="evenodd" d="M19 8H26V16H19ZM21.2 10.2V13.8H23.8V10.2Z" />
+        <path d="M28 8H36V10H30.2V11H36V16H28V14H33.8V13H28Z" />
+      </g>
+    </svg>
+  );
+}

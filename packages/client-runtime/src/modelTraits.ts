@@ -110,6 +110,8 @@ export function buildTraitsTriggerDisplay(input: {
   ultrathinkPromptControlled: boolean;
   modelSelection?: ModelSelection | null;
   reportedModelSelection?: ModelSelection | null | undefined;
+  /** False when an inline speed toggle already communicates Fast. */
+  includeSpeed?: boolean;
 }): { label: string } {
   let fastModeFallbackLabel: string | null = null;
   let speedLabel: string | null = null;
@@ -170,7 +172,7 @@ export function buildTraitsTriggerDisplay(input: {
   if (labels.length === 0 && fastModeFallbackLabel !== null) {
     return { label: fastModeFallbackLabel };
   }
-  if (speedLabel) {
+  if (speedLabel && input.includeSpeed !== false) {
     if (reasoningLabelIndex >= 0) {
       labels[reasoningLabelIndex] = `${labels[reasoningLabelIndex]} ${speedLabel}`;
     } else {
