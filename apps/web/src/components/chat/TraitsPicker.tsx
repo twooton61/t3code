@@ -24,7 +24,7 @@ import {
   normalizeModelSlug,
 } from "@t3tools/shared/model";
 import { memo } from "react";
-import { BrainIcon } from "lucide-react";
+import { BrainIcon, ZapIcon } from "lucide-react";
 import {
   Menu,
   MenuGroup,
@@ -45,6 +45,15 @@ import {
   ComposerControlIcon,
   type ComposerControlSize,
 } from "./ComposerControl";
+import {
+  EFFORT_DESCRIPTOR_IDS,
+  EFFORT_GEAR_TEXT_CLASS,
+  EffortGearMeter,
+  EffortShifter,
+  resolveEffortGear,
+  resolveSpeedToggle,
+  STANDARD_GEAR_EFFORTS,
+} from "./effortGear";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
@@ -326,6 +335,57 @@ export interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
 }
 
+function useTraitsChange({
+  provider,
+  instanceId,
+  model,
+  selected,
+  onPromptEdit,
+  persistence,
+}: {
+  provider: ProviderDriverKind;
+  instanceId: ProviderInstanceId | undefined;
+  model: string | null | undefined;
+  selected: ReturnType<typeof getTraitsSectionVisibility>;
+  onPromptEdit: TraitsMenuContentProps["onPromptEdit"];
+  persistence: TraitsPersistence;
+}) {
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
+    if ("onModelOptionsChange" in persistence) {
+      persistence.onModelOptionsChange(nextOptions);
+      return;
+    }
+    const threadTarget = persistence.threadRef ?? persistence.draftId;
+    if (!threadTarget) return;
+    setProviderModelOptions(threadTarget, provider, nextOptions, {
+      ...(instanceId ? { instanceId } : {}),
+      model,
+      persistSticky: true,
+    });
+  };
+  const handleValueChange = (descriptorId: string, value: string | boolean) => {
+    updateModelOptions(
+      buildProviderOptionSelectionsFromDescriptors(
+        replaceDescriptorCurrentValue(selected.descriptors, descriptorId, value),
+      ),
+    );
+  };
+  const handleSelectChange = (
+    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
+    value: string,
+  ) => {
+    const change = getTraitSelectChange(selected, descriptor, "", value);
+    if (!change) return;
+    onPromptEdit?.(
+      (prompt) => getTraitSelectChange(selected, descriptor, prompt, value)?.prompt ?? prompt,
+    );
+    if ("modelOptions" in change) updateModelOptions(change.modelOptions);
+  };
+
+  return { handleSelectChange, handleValueChange };
+}
+
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   provider,
   instanceId,
@@ -341,22 +401,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
 }: TraitsMenuContentProps & TraitsPersistence) {
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
-  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
-  const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
-    if ("onModelOptionsChange" in persistence) {
-      persistence.onModelOptionsChange(nextOptions);
-      return;
-    }
-    const threadTarget = persistence.threadRef ?? persistence.draftId;
-    if (!threadTarget) {
-      return;
-    }
-    setProviderModelOptions(threadTarget, provider, nextOptions, {
-      ...(instanceId ? { instanceId } : {}),
-      model,
-      persistSticky: true,
-    });
-  };
   const selected = getTraitsSectionVisibility({
     provider,
     models,
@@ -376,22 +420,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     hasAnyControls,
     modelIsUnavailable,
   } = selected;
-  const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
-    updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
-  };
-
-  const handleSelectChange = (
-    descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
-    value: string,
-  ) => {
-    // Whether a pick applies, and the options it writes, do not depend on the prompt text.
-    const change = getTraitSelectChange(selected, descriptor, "", value);
-    if (!change) return;
-    onPromptEdit?.(
-      (prompt) => getTraitSelectChange(selected, descriptor, prompt, value)?.prompt ?? prompt,
-    );
-    if ("modelOptions" in change) updateModelOptions(change.modelOptions);
-  };
+  const { handleSelectChange, handleValueChange } = useTraitsChange({
+    provider,
+    instanceId,
+    model,
+    selected,
+    onPromptEdit,
+    persistence,
+  });
 
   if (!hasAnyControls) {
     return null;
@@ -430,6 +466,15 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
             ? "ultrathink"
             : (getDescriptorStringValue(descriptor, modelSelection, reportedModelSelection) ?? "");
+        const effortLocked = ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id;
+        const choices = selectableProviderOptionChoices(descriptor);
+        const gearOptions = EFFORT_DESCRIPTOR_IDS.includes(descriptor.id)
+          ? choices.filter((option) => STANDARD_GEAR_EFFORTS.has(option.id))
+          : [];
+        const showGearshift = gearOptions.length >= 2;
+        const listOptions = showGearshift
+          ? choices.filter((option) => !STANDARD_GEAR_EFFORTS.has(option.id))
+          : choices;
 
         return (
           <div key={descriptor.id}>
@@ -438,7 +483,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
                 {descriptor.label}
               </div>
-              {ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id ? (
+              {effortLocked ? (
                 <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
                   Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change this
                   option.
@@ -448,7 +493,40 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
-                {selectableProviderOptionChoices(descriptor).map((option) => (
+                {showGearshift ? (
+                  <div className="flex items-stretch gap-1">
+                    {gearOptions.map((option) => {
+                      const gear = resolveEffortGear(option.id) ?? 1;
+                      const isSelected = option.id === selectedValue;
+                      return (
+                        <MenuRadioItem
+                          key={option.id}
+                          value={option.id}
+                          hideIndicator
+                          closeOnClick
+                          disabled={effortLocked}
+                          aria-label={option.label}
+                          className="flex-1"
+                        >
+                          <span className="flex min-w-14 flex-col items-center gap-1 py-1">
+                            <EffortGearMeter gear={gear} size="lg" muted={!isSelected} />
+                            <span
+                              className={cn(
+                                "whitespace-nowrap text-xs",
+                                isSelected
+                                  ? cn("font-semibold", EFFORT_GEAR_TEXT_CLASS[gear])
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {option.label}
+                            </span>
+                          </span>
+                        </MenuRadioItem>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {listOptions.map((option) => (
                   <MenuRadioItem
                     key={option.id}
                     value={option.id}
@@ -456,7 +534,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                     // Base UI keeps radio menus open by default. Close on pick so
                     // the traits menu behaves like the model picker.
                     closeOnClick
-                    disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
+                    disabled={effortLocked}
                   >
                     <span className="flex w-full min-w-0 flex-col">
                       <span className="flex min-w-0 items-center gap-1">
@@ -488,11 +566,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               </div>
               <MenuRadioGroup
                 value={selectedValue}
-                onValueChange={(value) => {
-                  updateDescriptors(
-                    replaceDescriptorCurrentValue(descriptors, descriptor.id, value === "on"),
-                  );
-                }}
+                onValueChange={(value) => handleValueChange(descriptor.id, value === "on")}
               >
                 {(["on", "off"] as const).map((value) => (
                   <MenuRadioItem key={value} value={value} hideIndicator closeOnClick>
@@ -535,16 +609,30 @@ export const TraitsPicker = memo(function TraitsPicker({
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden || disabled);
-  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
-    getTraitsSectionVisibility({
-      provider,
-      models,
-      model,
-      promptUltrathink,
-      modelOptions,
-      allowPromptInjectedEffort,
-      planModeEnabled,
-    });
+  const selected = getTraitsSectionVisibility({
+    provider,
+    models,
+    model,
+    promptUltrathink,
+    modelOptions,
+    allowPromptInjectedEffort,
+    planModeEnabled,
+  });
+  const {
+    descriptors,
+    primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    ultrathinkInBodyText,
+    effort,
+  } = selected;
+  const { handleSelectChange, handleValueChange } = useTraitsChange({
+    provider,
+    instanceId,
+    model,
+    selected,
+    onPromptEdit,
+    persistence,
+  });
   if (
     !shouldRenderTraitsControls({
       provider,
@@ -559,6 +647,7 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
+  const speedToggle = resolveSpeedToggle(descriptors);
   const { label: triggerLabel } = buildTraitsTriggerDisplay({
     provider,
     descriptors,
@@ -566,75 +655,136 @@ export const TraitsPicker = memo(function TraitsPicker({
     ultrathinkPromptControlled,
     modelSelection: instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
     reportedModelSelection,
+    includeSpeed: speedToggle?.on !== true,
   });
   const isCodexStyle = provider === "codex";
+  const effortDescriptor =
+    primarySelectDescriptor && EFFORT_DESCRIPTOR_IDS.includes(primarySelectDescriptor.id)
+      ? primarySelectDescriptor
+      : null;
+  const effortGear = effortDescriptor ? resolveEffortGear(effort) : null;
+  const gearGates =
+    effortDescriptor?.options.filter((option) => STANDARD_GEAR_EFFORTS.has(option.id)) ?? [];
+  const shifter =
+    effortDescriptor && gearGates.length >= 2 ? (
+      <EffortShifter
+        gates={gearGates}
+        effort={effort}
+        disabled={disabled || ultrathinkInBodyText}
+        size={size}
+        onShift={(value) => handleSelectChange(effortDescriptor, value)}
+      />
+    ) : null;
+  const triggerIcon = shifter ? null : effortGear ? (
+    <EffortGearMeter gear={effortGear} size={size} />
+  ) : (
+    <ComposerControlIcon icon={BrainIcon} size={size} />
+  );
+  const triggerLabelClassName = effortGear ? EFFORT_GEAR_TEXT_CLASS[effortGear] : undefined;
+  const speedButton = speedToggle ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <ComposerControl
+            disabled={disabled}
+            aria-label="Fast mode"
+            aria-pressed={speedToggle.on}
+            size={size}
+            className={size === "xs" ? "px-1" : "px-1.5"}
+            onClick={() =>
+              handleValueChange(
+                speedToggle.descriptorId,
+                speedToggle.on ? speedToggle.offValue : speedToggle.onValue,
+              )
+            }
+          />
+        }
+      >
+        <ComposerControlIcon
+          icon={ZapIcon}
+          size={size}
+          className={speedToggle.on ? "fill-current text-warning-foreground" : undefined}
+        />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{speedToggle.on ? "Fast mode on" : "Fast mode off"}</TooltipPopup>
+    </Tooltip>
+  ) : null;
 
   return (
-    <Menu
-      open={isMenuOpen}
-      onOpenChange={(open) => {
-        setIsMenuOpen(open && !disabled);
-      }}
-    >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger
-              render={
-                <ComposerControl
-                  disabled={disabled}
-                  aria-label={triggerLabel}
-                  data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
-                  size={size}
-                  className={cn(
-                    isCodexStyle
-                      ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap sm:max-w-48"
-                      : "shrink-0 whitespace-nowrap",
-                    triggerClassName,
-                  )}
-                />
-              }
-            />
-          }
-        >
-          {isCodexStyle ? (
-            <span
-              className={cn(
-                "flex min-w-0 w-full items-center",
-                size === "xs" ? "gap-1" : "gap-1.5",
-              )}
-            >
-              <ComposerControlIcon icon={BrainIcon} size={size} />
-              <span data-composer-control-label className="min-w-0 truncate">
-                {triggerLabel}
+    <div className={cn("flex items-center", isCodexStyle ? "min-w-0 shrink" : "shrink-0")}>
+      {shifter}
+      <Menu
+        open={isMenuOpen}
+        onOpenChange={(open) => {
+          setIsMenuOpen(open && !disabled);
+        }}
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <MenuTrigger
+                render={
+                  <ComposerControl
+                    disabled={disabled}
+                    aria-label={triggerLabel}
+                    data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
+                    size={size}
+                    className={cn(
+                      isCodexStyle
+                        ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap sm:max-w-48"
+                        : "shrink-0 whitespace-nowrap",
+                      triggerClassName,
+                    )}
+                  />
+                }
+              />
+            }
+          >
+            {isCodexStyle ? (
+              <span
+                className={cn(
+                  "flex min-w-0 w-full items-center",
+                  size === "xs" ? "gap-1" : "gap-1.5",
+                )}
+              >
+                {triggerIcon}
+                <span
+                  data-composer-control-label
+                  className={cn("min-w-0 truncate", triggerLabelClassName)}
+                >
+                  {triggerLabel}
+                </span>
+                <ComposerControlChevron size={size} />
               </span>
-              <ComposerControlChevron size={size} />
-            </span>
-          ) : (
-            <>
-              <ComposerControlIcon icon={BrainIcon} size={size} />
-              <span data-composer-control-label>{triggerLabel}</span>
-              <ComposerControlChevron size={size} />
-            </>
-          )}
-        </TooltipTrigger>
-        <TooltipPopup side="top">{triggerLabel}</TooltipPopup>
-      </Tooltip>
-      <MenuPopup align="start" {...(isComposerOwned ? composerFloatingLayerProps : {})}>
-        <TraitsMenuContent
-          provider={provider}
-          {...(instanceId ? { instanceId } : {})}
-          models={models}
-          model={model}
-          promptUltrathink={promptUltrathink}
-          {...(onPromptEdit ? { onPromptEdit } : {})}
-          modelOptions={modelOptions}
-          reportedModelSelection={reportedModelSelection}
-          allowPromptInjectedEffort={allowPromptInjectedEffort}
-          planModeEnabled={planModeEnabled}
-          {...persistence}
-        />
-      </MenuPopup>
-    </Menu>
+            ) : (
+              <>
+                {triggerIcon}
+                <span data-composer-control-label className={triggerLabelClassName}>
+                  {triggerLabel}
+                </span>
+                <ComposerControlChevron size={size} />
+              </>
+            )}
+          </TooltipTrigger>
+          <TooltipPopup side="top">{triggerLabel}</TooltipPopup>
+        </Tooltip>
+        <MenuPopup align="start" {...(isComposerOwned ? composerFloatingLayerProps : {})}>
+          <TraitsMenuContent
+            provider={provider}
+            {...(instanceId ? { instanceId } : {})}
+            models={models}
+            model={model}
+            promptUltrathink={promptUltrathink}
+            {...(onPromptEdit ? { onPromptEdit } : {})}
+            modelOptions={modelOptions}
+            reportedModelSelection={reportedModelSelection}
+            allowPromptInjectedEffort={allowPromptInjectedEffort}
+            planModeEnabled={planModeEnabled}
+            {...persistence}
+          />
+        </MenuPopup>
+      </Menu>
+      {speedButton}
+    </div>
   );
 });
