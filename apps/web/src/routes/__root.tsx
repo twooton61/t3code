@@ -14,7 +14,7 @@ import {
 import { Check, Copy } from "lucide";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION_LABEL } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
@@ -481,7 +481,7 @@ const MAX_ERROR_CAUSE_DEPTH = 5;
  */
 function errorReport(error: unknown, pathname: string): string {
   const lines = [
-    `${APP_DISPLAY_NAME} ${APP_VERSION}`,
+    `${APP_DISPLAY_NAME} ${APP_VERSION_LABEL}`,
     `Path: ${pathname}`,
     `Time: ${new Date().toISOString()}`,
     "",
