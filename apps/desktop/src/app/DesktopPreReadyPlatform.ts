@@ -19,6 +19,7 @@ import {
   replacedVersionedAppImagePath,
 } from "./DesktopLinuxUrlHandler.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
+import { getAppVersion } from "../electron/ElectronApp.ts";
 
 export interface DesktopPreReadyCommandLineReader {
   readonly hasSwitch: (switchName: string) => boolean;
@@ -144,7 +145,7 @@ export const make = Effect.gen(function* () {
           renderUrlHandlerDesktopEntry({
             displayName: resolveDesktopAppBranding({
               isDevelopment: linux.isDevelopment,
-              appVersion: Electron.app.getVersion(),
+              appVersion: getAppVersion(),
             }).displayName,
             execTarget:
               Option.getOrUndefined(

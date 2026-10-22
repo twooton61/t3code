@@ -7,6 +7,13 @@ import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
 
+import desktopPackageJson from "../../package.json" with { type: "json" };
+
+export function getAppVersion(): string {
+  // Launching the main bundle directly leaves Electron's default-app version in place.
+  return Electron.app.isPackaged ? Electron.app.getVersion() : desktopPackageJson.version;
+}
+
 export interface ElectronAppMetadata {
   readonly appVersion: string;
   readonly appPath: string;
@@ -114,7 +121,7 @@ export function toSystemLocaleTag(identifier: string, hourCycle?: "h12" | "h23")
 export const make = ElectronApp.of({
   metadata: Effect.gen(function* () {
     const appVersion = yield* Effect.try({
-      try: () => Electron.app.getVersion(),
+      try: getAppVersion,
       catch: (cause) =>
         new ElectronAppMetadataReadError({
           property: "app-version",
