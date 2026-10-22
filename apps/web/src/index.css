@@ -1679,9 +1679,11 @@ body {
 
 /* The Linux desktop window is transparent, so app surfaces let the
    compositor (and its blur) show through. Overlays such as popovers and
-   dialogs keep their opaque tokens, and text is never faded. */
+   dialogs keep their opaque tokens, and text is never faded. The body stays
+   clear: the sidebar and main surfaces already cover the window, and a second
+   translucent layer under them would stack to near-opaque. */
 .electron-linux {
-  --linux-surface-alpha: 82%;
+  --linux-surface-alpha: 70%;
   --color-background: color-mix(in srgb, var(--background) var(--linux-surface-alpha), transparent);
   --color-sidebar: color-mix(in srgb, var(--sidebar) var(--linux-surface-alpha), transparent);
   --color-card: color-mix(in srgb, var(--card) var(--linux-surface-alpha), transparent);
@@ -1689,11 +1691,22 @@ body {
 }
 
 .electron-linux body {
-  background-color: color-mix(
-    in srgb,
-    var(--app-chrome-background) var(--linux-surface-alpha),
-    transparent
-  );
+  background-color: transparent;
+}
+
+/* Layout wrappers repeat their parent's fill (the chat column nests three
+   bg-background layers), which would stack back to opaque. Only plain layout
+   elements are cleared: ui controls carry a data-slot, and sticky or
+   positioned elements keep their fill because they cover scrolled content. */
+.electron-linux
+  :is(.bg-background, .bg-sidebar)
+  :is(div, header, main, section):is(.bg-background, .bg-sidebar):not(
+    [data-slot],
+    .sticky,
+    .absolute,
+    .fixed
+  ) {
+  background-color: transparent;
 }
 
 /* App-chrome grain. Baked into each surface's own background (behind
