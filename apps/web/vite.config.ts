@@ -45,6 +45,9 @@ const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() |
 const configuredReleaseChannel =
   process.env.T3CODE_BUILT_DEV === "1" ? "dev" : process.env.VITE_RELEASE_CHANNEL?.trim() || "";
 const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
+// Display-only override, e.g. a commit hash for local builds. Version skew
+// checks keep using APP_VERSION.
+const configuredAppVersionLabel = process.env.APP_VERSION_LABEL?.trim() || configuredAppVersion;
 const configuredDesktopUpdateRepository =
   process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
   process.env.GITHUB_REPOSITORY?.trim() ||
@@ -318,6 +321,7 @@ export default defineConfig(() => {
       ),
       "import.meta.env.VITE_RELEASE_CHANNEL": JSON.stringify(configuredReleaseChannel),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
+      "import.meta.env.APP_VERSION_LABEL": JSON.stringify(configuredAppVersionLabel),
     },
     resolve: {
       tsconfigPaths: true,
