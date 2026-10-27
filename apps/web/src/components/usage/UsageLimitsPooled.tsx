@@ -27,6 +27,7 @@ import {
   useState,
 } from "react";
 
+import { ResetCreditPotions } from "./ResetCreditPotions";
 import { ensureLocalApi } from "../../localApi";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -155,8 +156,8 @@ function SegmentPopover({
     account.environments.length > 0
       ? account.environments.map((environment) => environment.label).join(", ")
       : account.sourceLabel;
-  const credits =
-    redeem && account.limits.resetCredits?.availableCount ? account.limits.resetCredits : null;
+  const credits = account.limits.resetCredits;
+  const potions = account.driver === "codex" || account.driver === "claudeAgent";
   return (
     <div className="flex w-72 max-w-[calc(100vw-3rem)] flex-col gap-2.5 text-xs">
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -195,19 +196,27 @@ function SegmentPopover({
           <Row label="Restores">+{reset.restoresPercent}% of pool</Row>
         ) : null}
       </div>
-      {credits && redeem ? (
+      {credits && (potions || redeem) ? (
         <div className="border-t border-border/60 pt-2.5 text-muted-foreground">
-          <span className="flex items-center gap-3">
+          <span className="flex flex-wrap items-center gap-3">
+            {potions ? (
+              <ResetCreditPotions
+                count={credits.availableCount}
+                label={resetCreditsSummary(credits, now)}
+              />
+            ) : null}
             <span className="tabular-nums">{resetCreditsSummary(credits, now, true)}</span>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={redeem.busy || !redeem.canManageProviders}
-              className="ms-auto"
-              onClick={onRedeem}
-            >
-              {redeem.busy ? "Using…" : "Use reset"}
-            </Button>
+            {redeem && credits.availableCount > 0 ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={redeem.busy || !redeem.canManageProviders}
+                className="ms-auto"
+                onClick={onRedeem}
+              >
+                {redeem.busy ? "Using…" : "Use reset"}
+              </Button>
+            ) : null}
           </span>
         </div>
       ) : null}
@@ -347,6 +356,9 @@ function SegmentTriggers({
   const [segmentRef, paceMark] = usePaceMark(timeLeft);
   const resetsIn = formatResetsIn(window, now);
   const credits = account.limits.resetCredits?.availableCount ?? 0;
+  const potions =
+    (account.driver === "codex" || account.driver === "claudeAgent") &&
+    account.limits.resetCredits !== undefined;
   return (
     <>
       <PopoverTrigger
@@ -358,7 +370,7 @@ function SegmentTriggers({
             ref={segmentRef}
             type="button"
             style={{ gridColumn: index, gridRow: 1, ...paceMark?.gappedTrack }}
-            aria-label={`${account.displayName ?? (account.email ? accountInitials(account.email) : account.driver)}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ""}${timeLeft === null ? "" : `, ${timeLeft}% of the window left`}${credits ? `, ${credits} reset ${credits === 1 ? "credit" : "credits"} banked` : ""}`}
+            aria-label={`${account.displayName ?? (account.email ? accountInitials(account.email) : account.driver)}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ""}${timeLeft === null ? "" : `, ${timeLeft}% of the window left`}${credits || potions ? `, ${credits} reset ${credits === 1 ? "credit" : "credits"} banked` : ""}`}
             className="relative h-5 min-w-0 cursor-pointer rounded-md bg-muted text-start outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[popup-open]:ring-1 data-[popup-open]:ring-inset data-[popup-open]:ring-border @2xl/pool:h-8"
           />
         }
@@ -409,10 +421,12 @@ function SegmentTriggers({
               {remaining}%
             </span>
           ) : null}
-          {resetsIn || credits ? (
+          {resetsIn || credits || potions ? (
             <span className="ms-auto flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm bg-background/85 px-1.5 py-0.5 text-2xs whitespace-nowrap text-foreground tabular-nums">
               {resetsIn?.replace("resets in ", "↻ ") ?? ""}
-              {credits ? (
+              {potions ? (
+                <ResetCreditPotions count={credits} />
+              ) : credits ? (
                 <>
                   {resetsIn ? (
                     <span aria-hidden className="text-muted-foreground">
@@ -450,6 +464,9 @@ function LegendRow({
   const remaining = remainingPercent(window);
   const resetsIn = formatResetsIn(window, now);
   const credits = account.limits.resetCredits?.availableCount ?? 0;
+  const potions =
+    (account.driver === "codex" || account.driver === "claudeAgent") &&
+    account.limits.resetCredits !== undefined;
   return (
     <PopoverTrigger
       handle={popover}
@@ -471,7 +488,9 @@ function LegendRow({
       <span className="shrink-0 font-semibold text-foreground tabular-nums">{remaining}%</span>
       <span className="ms-auto flex shrink-0 items-center gap-1.5 text-2xs text-muted-foreground tabular-nums">
         {resetsIn?.replace("resets in ", "↻ ") ?? ""}
-        {credits ? (
+        {potions ? (
+          <ResetCreditPotions count={credits} />
+        ) : credits ? (
           <>
             {resetsIn ? <span aria-hidden>·</span> : null}
             <span

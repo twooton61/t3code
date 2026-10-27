@@ -38,6 +38,7 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ResetCreditPotions } from "./ResetCreditPotions";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
@@ -316,6 +317,7 @@ export function resetCreditsSummary(
 }
 
 export function ResetCredits({
+  driver,
   environmentId,
   input,
   credits,
@@ -325,15 +327,24 @@ export function ResetCredits({
   readonly input: ProviderConsumeResetCreditInput;
   readonly credits: ServerProviderResetCredits;
   readonly now: number;
+  readonly driver: ServerProvider["driver"];
 }) {
   const { canManageProviders, confirming, setConfirming, busy, status, redeem } = useResetCredit(
     environmentId,
     input,
   );
-  if (credits.availableCount === 0 && status === null) return null;
+  const potions = driver === "codex" || driver === "claudeAgent";
+  if (!potions && credits.availableCount === 0 && status === null) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-      <span className="tabular-nums">{resetCreditsSummary(credits, now)}</span>
+      {potions ? (
+        <ResetCreditPotions
+          count={credits.availableCount}
+          label={resetCreditsSummary(credits, now)}
+        />
+      ) : (
+        <span className="tabular-nums">{resetCreditsSummary(credits, now)}</span>
+      )}
       {credits.availableCount > 0 ? (
         <Button
           size="xs"

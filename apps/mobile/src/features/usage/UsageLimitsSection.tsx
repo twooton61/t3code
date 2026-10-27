@@ -34,6 +34,7 @@ import {
   limitsRefreshFailuresAtom,
   refreshEnvironmentLimits,
 } from "./usageLimitsRefresh";
+import { ResetCreditPotions } from "./ResetCreditPotions";
 import { usageProviderKind, useProviderColors } from "./usageProviders";
 
 const PACE_LABEL = { ahead: "ahead of pace", on: "on pace", under: "under pace" } as const;
@@ -225,20 +226,22 @@ const OUTCOME_TEXT: Record<ProviderConsumeResetCreditOutcome, string> = {
 };
 
 export function ResetCredits(props: {
+  readonly driver: ServerProvider["driver"];
   readonly environmentId: EnvironmentId;
   readonly input: ProviderConsumeResetCreditInput;
   readonly credits: ServerProviderResetCredits;
   readonly now: number;
   readonly dense?: boolean;
 }) {
-  const { environmentId, input, credits, now, dense = false } = props;
+  const { driver, environmentId, input, credits, now, dense = false } = props;
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const consume = useAtomCommand(serverEnvironment.consumeResetCredit, {
     reportFailure: false,
   });
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  if (dense && credits.availableCount === 0 && status === null) return null;
+  const potions = driver === "codex" || driver === "claudeAgent";
+  if (!potions && dense && credits.availableCount === 0 && status === null) return null;
 
   const expiresIn = credits.nextExpiresAt
     ? formatDuration(Date.parse(credits.nextExpiresAt) - now)
@@ -281,7 +284,12 @@ export function ResetCredits(props: {
 
   return (
     <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
-      <Text className="text-xs tabular-nums text-foreground-tertiary">{summary}</Text>
+      {potions ? <ResetCreditPotions count={credits.availableCount} /> : null}
+      {!potions || expiresIn ? (
+        <Text className="text-xs tabular-nums text-foreground-tertiary">
+          {potions ? `Next expires in ${expiresIn}` : summary}
+        </Text>
+      ) : null}
       {credits.availableCount > 0 ? (
         <Pressable
           accessibilityRole="button"

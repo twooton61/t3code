@@ -25,6 +25,7 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
+import { ResetCreditPotions } from "./ResetCreditPotions";
 import { ResetCredits } from "./UsageLimitsSection";
 import { usageProviderKind, useProviderColors } from "./usageProviders";
 
@@ -325,12 +326,15 @@ function PoolWindowCard({
       {pool.columns.map(({ account, window }, index) => {
         if (!window) return null;
         const credits = account.limits.resetCredits?.availableCount ?? 0;
+        const potions =
+          (account.driver === "codex" || account.driver === "claudeAgent") &&
+          account.limits.resetCredits !== undefined;
         const resetsIn = formatResetsIn(window, now);
         return (
           <Pressable
             key={account.key}
             accessibilityRole="button"
-            accessibilityLabel={`Segment ${index + 1}, ${accountName(account)}, ${remainingPercent(window)}% left${resetsIn ? `, ${resetsIn}` : ""}${credits ? `, ${credits} reset credits banked` : ""}`}
+            accessibilityLabel={`Segment ${index + 1}, ${accountName(account)}, ${remainingPercent(window)}% left${resetsIn ? `, ${resetsIn}` : ""}${credits || potions ? `, ${credits} reset credits banked` : ""}`}
             accessibilityHint="Show account details"
             onPress={() => openAccount(account)}
             className="min-h-[44px] flex-row items-center gap-2 active:opacity-60"
@@ -362,7 +366,9 @@ function PoolWindowCard({
                   </Text>
                 </>
               ) : null}
-              {credits ? (
+              {potions ? (
+                <ResetCreditPotions count={credits} />
+              ) : credits ? (
                 <>
                   {resetsIn ? <Text className="text-xs text-foreground-tertiary">·</Text> : null}
                   <SymbolView name="ticket" size={13} tintColorClassName="accent-icon" />
@@ -622,16 +628,22 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
                 <Text className="text-sm text-foreground-muted">{account.sourceLabel}</Text>
               )}
             </View>
-            {account.redeem && account.limits.resetCredits ? (
+            {account.limits.resetCredits &&
+            (account.redeem || account.driver === "codex" || account.driver === "claudeAgent") ? (
               <View className="gap-3 rounded-[24px] border-continuous bg-grouped-card p-4">
                 <Text className="text-sm font-t3-medium text-foreground">Reset credits</Text>
-                <ResetCredits
-                  key={account.key}
-                  environmentId={account.redeem.environmentId}
-                  input={account.redeem.input}
-                  credits={account.limits.resetCredits}
-                  now={now}
-                />
+                {account.redeem ? (
+                  <ResetCredits
+                    key={account.key}
+                    environmentId={account.redeem.environmentId}
+                    input={account.redeem.input}
+                    driver={account.driver}
+                    credits={account.limits.resetCredits}
+                    now={now}
+                  />
+                ) : (
+                  <ResetCreditPotions count={account.limits.resetCredits.availableCount} />
+                )}
               </View>
             ) : null}
           </>
