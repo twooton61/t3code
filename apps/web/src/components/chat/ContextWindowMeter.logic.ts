@@ -111,24 +111,39 @@ export function formatContextWindowCompactionMessage(
     : "Context compacts automatically when needed.";
 }
 
-export function shouldReserveContextWindowMeter(input: {
-  readonly meterEnabled: boolean;
-  readonly detailLoading: boolean;
-  readonly threadStarted: boolean;
-  readonly providerReportsContextWindow: boolean | null;
-}): boolean {
-  return (
-    input.meterEnabled &&
-    input.detailLoading &&
-    input.threadStarted &&
-    input.providerReportsContextWindow !== false
-  );
-}
-
 export function formatContextWindowCost(cost: {
   readonly amount: number;
   readonly currency: string;
 }): string {
   const fractionDigits = Math.abs(cost.amount) > 0 && Math.abs(cost.amount) < 0.01 ? 4 : 2;
   return `${cost.currency} ${cost.amount.toFixed(fractionDigits)}`;
+}
+
+export const CONTEXT_TACH_SEGMENTS = 10;
+const DEFAULT_REDLINE_PERCENTAGE = 90;
+
+/** Segments lit for the used share, and the first redline segment, which sits at the compaction point when it is known. */
+export function resolveContextTach(input: {
+  readonly usedTokens: number;
+  readonly maxTokens: number | null;
+  readonly autoCompactThreshold: number | null;
+  readonly segments?: number;
+}): { readonly lit: number; readonly redlineStart: number; readonly inRedline: boolean } {
+  const segments = input.segments ?? CONTEXT_TACH_SEGMENTS;
+  const maxTokens = input.maxTokens !== null && input.maxTokens > 0 ? input.maxTokens : null;
+  const redlinePercentage =
+    maxTokens !== null && input.autoCompactThreshold !== null && input.autoCompactThreshold > 0
+      ? Math.min(100, (input.autoCompactThreshold / maxTokens) * 100)
+      : DEFAULT_REDLINE_PERCENTAGE;
+  const usedPercentage =
+    maxTokens === null ? 0 : Math.min(100, (Math.max(0, input.usedTokens) / maxTokens) * 100);
+  const redlineStart = Math.min(
+    segments - 1,
+    Math.max(1, Math.floor((redlinePercentage / 100) * segments)),
+  );
+  return {
+    lit: usedPercentage > 0 ? Math.ceil((usedPercentage / 100) * segments) : 0,
+    redlineStart,
+    inRedline: maxTokens !== null && usedPercentage >= redlinePercentage,
+  };
 }

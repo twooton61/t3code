@@ -2,6 +2,7 @@ import type { ChatComposerProps } from "./ChatComposer";
 import type { PromptUltrathink } from "./TraitsPicker";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
+import type { ReactNode } from "react";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl, ComposerControlSeparator } from "./ComposerControl";
@@ -31,6 +32,7 @@ import type { useComposerProviderModel } from "./useComposerProviderModel";
  * blocks that do not fit. Rendered in the expanded footer or the resting controls host.
  */
 export function ComposerControlsBar(props: {
+  contextWindowMeter: ReactNode;
   environmentId: EnvironmentId;
   routeKind: ChatComposerProps["routeKind"];
   routeThreadRef: ChatComposerProps["routeThreadRef"];
@@ -80,6 +82,7 @@ export function ComposerControlsBar(props: {
   getModelDisabledReason: ChatComposerProps["getModelDisabledReason"];
 }) {
   const {
+    contextWindowMeter,
     environmentId,
     routeKind,
     routeThreadRef,
@@ -162,11 +165,16 @@ export function ComposerControlsBar(props: {
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
-    ...(providerTraitsPicker
+    ...(providerTraitsPicker || contextWindowMeter
       ? [
           {
             id: "traits",
-            content: restingProviderTraitsPicker,
+            content: (
+              <>
+                {providerTraitsPicker ? restingProviderTraitsPicker : null}
+                {contextWindowMeter}
+              </>
+            ),
           },
         ]
       : []),

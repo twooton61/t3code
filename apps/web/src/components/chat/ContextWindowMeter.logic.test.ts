@@ -4,8 +4,8 @@ import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
+  resolveContextTach,
   resolveContextWindowModelDisplayName,
-  shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 
 function claudeProvider(input: {
@@ -136,24 +136,26 @@ describe("hasDismissedResumeCompaction", () => {
   });
 });
 
-describe("shouldReserveContextWindowMeter", () => {
-  const loadingStartedThread = {
-    meterEnabled: true,
-    detailLoading: true,
-    threadStarted: true,
-    providerReportsContextWindow: true,
-  };
-
-  it("holds the meter's slot while a started thread's detail loads", () => {
-    expect(shouldReserveContextWindowMeter(loadingStartedThread)).toBe(true);
+describe("resolveContextTach", () => {
+  it("puts the redline at 90% when the compaction point is unknown", () => {
+    expect(
+      resolveContextTach({ usedTokens: 50_000, maxTokens: 200_000, autoCompactThreshold: null }),
+    ).toEqual({ lit: 3, redlineStart: 9, inRedline: false });
   });
 
-  it("reserves while the thread's provider is not in the catalog yet", () => {
+  it("moves the redline to the auto-compact threshold", () => {
     expect(
-      shouldReserveContextWindowMeter({
-        ...loadingStartedThread,
-        providerReportsContextWindow: null,
+      resolveContextTach({
+        usedTokens: 130_000,
+        maxTokens: 200_000,
+        autoCompactThreshold: 120_000,
       }),
-    ).toBe(true);
+    ).toEqual({ lit: 7, redlineStart: 6, inRedline: true });
+  });
+
+  it("lights nothing without a known window", () => {
+    expect(
+      resolveContextTach({ usedTokens: 50_000, maxTokens: null, autoCompactThreshold: 120_000 }),
+    ).toEqual({ lit: 0, redlineStart: 9, inRedline: false });
   });
 });
