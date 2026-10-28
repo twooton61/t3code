@@ -555,6 +555,12 @@ export const make = Effect.gen(function* () {
         if (Option.isSome(ElectronShell.parseSafeExternalUrl(params.linkURL))) {
           menuTemplate.push(
             {
+              label: "Open in External Browser",
+              click: () => {
+                void runPromise(electronShell.openExternal(params.linkURL));
+              },
+            },
+            {
               label: "Copy Link",
               click: () => {
                 void runPromise(electronShell.copyText(params.linkURL));
