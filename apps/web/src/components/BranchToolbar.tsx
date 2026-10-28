@@ -761,9 +761,8 @@ export const BranchToolbar = memo(function BranchToolbar({
       {showGitControls || showEnvironmentIndicator ? (
         <div
           className={cn(
-            "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
+            "min-h-7 min-w-10 shrink items-center gap-1 sm:min-h-6",
             showGitControls ? "hidden @xl/composer-surface:flex" : "flex",
-            "flex-1",
           )}
         >
           {showEnvironmentIndicator && availableEnvironments && (
@@ -805,7 +804,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}
-          className="min-w-0 flex-initial justify-end @xl/composer-surface:ml-auto"
+          className="min-w-0 flex-initial justify-start"
           environmentId={environmentId}
           threadId={threadId}
           {...(draftId ? { draftId } : {})}
