@@ -242,6 +242,7 @@ function layerTest(input: {
   readonly onWindowCreate?: Effect.Effect<void>;
   readonly openedExternalUrls?: unknown[];
   readonly onCopyText?: (text: string) => Effect.Effect<void>;
+  readonly onExternalOpen?: (url: unknown) => Effect.Effect<void>;
   readonly onPopupTemplate?: (input: ElectronMenu.ElectronMenuTemplateInput) => Effect.Effect<void>;
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
@@ -350,7 +351,7 @@ function layerTest(input: {
             Effect.sync(() => {
               input.openedExternalUrls?.push(url);
               return true;
-            }),
+            }).pipe(Effect.tap(() => input.onExternalOpen?.(url) ?? Effect.void)),
           openSystemSettings: () => Effect.succeed(true),
           copyText: input.onCopyText ?? (() => Effect.void),
         } satisfies ElectronShell.ElectronShell["Service"]),
@@ -1531,19 +1532,35 @@ describe("DesktopWindow", () => {
     }),
   );
 
-  it.effect("offers to copy the bare address when right-clicking a mailto link", () =>
+  it.effect.each([
+    {
+      url: "mailto:restaurant%40example.com?subject=Hi",
+      label: "Copy Email Address",
+      copiedText: "restaurant@example.com",
+      external: false,
+    },
+    {
+      url: "https://example.com/link",
+      label: "Copy Link",
+      copiedText: "https://example.com/link",
+      external: true,
+    },
+    { url: "file:///etc/passwd", label: null, copiedText: null, external: false },
+  ])("offers safe link actions for $url", ({ url, label, copiedText, external }) =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const popup = yield* Deferred.make<ElectronMenu.ElectronMenuTemplateInput>();
       const copied = yield* Deferred.make<string>();
+      const opened = yield* Deferred.make<unknown>();
       const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
         onPopupTemplate: (input) => Deferred.succeed(popup, input),
         onCopyText: (text) => Deferred.succeed(copied, text),
+        onExternalOpen: (url) => Deferred.succeed(opened, url),
       });
 
       yield* Effect.gen(function* () {
@@ -1557,7 +1574,7 @@ describe("DesktopWindow", () => {
         contextMenu(
           { preventDefault: vi.fn() },
           {
-            linkURL: "mailto:restaurant%40example.com?subject=Hi",
+            linkURL: url,
             misspelledWord: "",
             dictionarySuggestions: [],
             mediaType: "none",
@@ -1566,17 +1583,22 @@ describe("DesktopWindow", () => {
         );
 
         const { template } = yield* Deferred.await(popup);
-        const copyEmail = template.find((item) => item.label === "Copy Email Address");
-        assert.isDefined(
-          copyEmail,
-          `no "Copy Email Address" item in ${JSON.stringify(template.map((item) => item.label ?? item.role ?? item.type))}`,
-        );
-        copyEmail?.click?.(
-          {} as Electron.MenuItem,
-          fakeWindow.window,
-          {} as Electron.KeyboardEvent,
-        );
-        assert.equal(yield* Deferred.await(copied), "restaurant@example.com");
+        if (label !== null) {
+          const copy = template.find((item) => item.label === label);
+          assert.isDefined(copy);
+          copy?.click?.({} as Electron.MenuItem, fakeWindow.window, {} as Electron.KeyboardEvent);
+          assert.equal(yield* Deferred.await(copied), copiedText);
+        }
+        const openExternal = template.find((item) => item.label === "Open in External Browser");
+        assert.equal(openExternal !== undefined, external);
+        if (external) {
+          openExternal?.click?.(
+            {} as Electron.MenuItem,
+            fakeWindow.window,
+            {} as Electron.KeyboardEvent,
+          );
+          assert.equal(yield* Deferred.await(opened), url);
+        }
       }).pipe(Effect.provide(layer));
     }),
   );

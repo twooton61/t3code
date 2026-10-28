@@ -15,3 +15,6 @@ HTML files you open from Finder open the same way. [Prompt links](prompt-links.m
 app.t3.codes open in the app as a draft.
 
 A link that launches T3 Code waits until the app has connected to its environment, then opens.
+
+To open a link from the desktop app in your system browser, right-click it and choose
+**Open in External Browser**. This also works inside desktop browser tabs.
