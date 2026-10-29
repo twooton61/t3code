@@ -226,6 +226,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import {
   Combobox,
   ComboboxEmpty,
@@ -444,15 +445,17 @@ function useSidebarThreads(input: {
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const [settledSearchQuery, setSettledSearchQuery] = useState("");
+  const settledTailScopeKey = `${projectScopeKey ?? ""}\0${settledSearchQuery.trim()}`;
   const [settledTail, setSettledTail] = useState({
-    scopeKey: projectScopeKey,
+    scopeKey: settledTailScopeKey,
     count: SETTLED_TAIL_INITIAL_COUNT,
   });
-  if (settledTail.scopeKey !== projectScopeKey) {
-    setSettledTail({ scopeKey: projectScopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
+  if (settledTail.scopeKey !== settledTailScopeKey) {
+    setSettledTail({ scopeKey: settledTailScopeKey, count: SETTLED_TAIL_INITIAL_COUNT });
   }
   const settledVisibleCount =
-    settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
+    settledTail.scopeKey === settledTailScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
   const partition = partitionSidebarThreads({
     threads,
@@ -467,19 +470,35 @@ function useSidebarThreads(input: {
 
   const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
     partition;
+  const isSearchingSettled = settledShelfExpanded && settledSearchQuery.trim().length > 0;
+  const settledSearchScopes = olderSettledScopes(useConnectedEnvironmentIds(), scopedProjectKeys);
+  const settledSearch = useThreadSearch(
+    settledSearchScopes.map((scope) => scope.environmentId),
+    settledShelfExpanded ? settledSearchQuery : "",
+    {
+      titlesOnly: true,
+      ...(scopedProjectKeys === null
+        ? {}
+        : { projectIds: settledSearchScopes.flatMap((scope) => scope.projectIds ?? []) }),
+    },
+  );
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
-    expanded: settledShelfExpanded,
+    expanded: settledShelfExpanded && !isSearchingSettled,
     visibleCount: settledVisibleCount,
   });
   const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
   const settledCount =
     settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
+  const matchedSettledThreads = isSearchingSettled
+    ? searchSidebarThreads(settledThreads, settledSearchQuery).titleMatches
+    : listedSettledThreads;
   const visibleSettledThreads = (() => {
-    const visible = listedSettledThreads.slice(0, settledVisibleCount);
+    const visible = matchedSettledThreads.slice(0, settledVisibleCount);
     if (
+      !isSearchingSettled &&
       routeRowThreadKey !== null &&
       !visible.some((thread) => threadShellKey(thread) === routeRowThreadKey)
     ) {
@@ -488,7 +507,7 @@ function useSidebarThreads(input: {
       );
       if (routeThread !== undefined) visible.push(routeThread);
     }
-    return visible.length === settledThreads.length ? settledThreads : visible;
+    return visible;
   })();
   const renderedSettledThreads = settledShelfExpanded
     ? visibleSettledThreads
@@ -552,7 +571,15 @@ function useSidebarThreads(input: {
     settledVisibleCount,
     settledCount,
     olderSettledShelf,
-    hiddenSettledCount: Math.max(0, settledCount - visibleSettledThreads.length),
+    settledSearchQuery,
+    setSettledSearchQuery,
+    isSearchingSettled,
+    settledSearchPending: settledSearch.isPending,
+    hiddenSettledCount: Math.max(
+      0,
+      (isSearchingSettled ? matchedSettledThreads.length : settledCount) -
+        visibleSettledThreads.length,
+    ),
     showMoreSettled: () =>
       setSettledTail((current) => ({
         scopeKey: current.scopeKey,
@@ -1232,6 +1259,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settledCount,
     olderSettledShelf,
     hiddenSettledCount,
+    settledSearchQuery,
+    setSettledSearchQuery,
+    isSearchingSettled,
+    settledSearchPending,
     showMoreSettled,
     settledShelfExpanded,
     toggleSettledShelf,
@@ -3371,6 +3402,56 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 }}
                               />,
                             );
+                            if (settledShelfExpanded) {
+                              items.push(
+                                <li
+                                  key="settled-search"
+                                  className="list-none px-2 py-1"
+                                  data-thread-selection-safe
+                                >
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      size="compact"
+                                      type="search"
+                                      aria-label="Search settled threads"
+                                      placeholder="Search settled threads…"
+                                      value={settledSearchQuery}
+                                      onChange={(event) =>
+                                        setSettledSearchQuery(event.currentTarget.value)
+                                      }
+                                      onKeyDown={(event) => {
+                                        event.stopPropagation();
+                                        if (event.key === "Escape") {
+                                          event.preventDefault();
+                                          setSettledSearchQuery("");
+                                        }
+                                      }}
+                                    />
+                                    {isSearchingSettled ? (
+                                      <Button
+                                        variant="ghost-muted"
+                                        size="compact"
+                                        aria-label="Clear settled thread search"
+                                        onClick={() => setSettledSearchQuery("")}
+                                      >
+                                        Clear
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                  {isSearchingSettled &&
+                                  (settledSearchPending || renderedSettledThreads.length === 0) ? (
+                                    <div
+                                      role="status"
+                                      className="px-1 py-2 text-xs text-sidebar-muted-foreground"
+                                    >
+                                      {settledSearchPending
+                                        ? "Searching…"
+                                        : "No settled threads found"}
+                                    </div>
+                                  ) : null}
+                                </li>,
+                              );
+                            }
                             break;
                           case "settled-placeholder":
                             items.push(

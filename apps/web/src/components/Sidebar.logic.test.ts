@@ -395,6 +395,9 @@ describe("searchSidebarThreads", () => {
         contentMatches: [threads[1]],
       },
     );
+    expect(searchSidebarThreads(threads, "workspcae", undefined, now).titleMatches).toEqual([
+      threads[0],
+    ]);
   });
 });
 
