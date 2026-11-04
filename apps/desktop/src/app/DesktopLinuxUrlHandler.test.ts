@@ -233,6 +233,29 @@ describe("DesktopLinuxUrlHandler", () => {
     }
   });
 
+  it.effect("relaunches an unpackaged build through its switches and entry script", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const args = DesktopLinuxUrlHandler.unpackagedLaunchArgs(
+        ["/repo/electron", "--no-sandbox", "dist-electron/main.cjs", "t3code://app/x"],
+        "/repo/apps/desktop",
+        path,
+      );
+      assert.deepEqual(args, ["--no-sandbox", "/repo/apps/desktop/dist-electron/main.cjs"]);
+
+      const entry = DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
+        displayName: "T3 Code (Beta)",
+        execTarget: "/repo/electron",
+        execArgs: args,
+        scheme: "t3code",
+      });
+      assert.include(
+        entry,
+        "Exec=/repo/electron --no-sandbox /repo/apps/desktop/dist-electron/main.cjs %U",
+      );
+    }).pipe(Effect.provide(Path.layer)),
+  );
+
   it.effect(
     "writes the handler entry, refreshes the MIME cache, and claims the scheme default",
     () => {

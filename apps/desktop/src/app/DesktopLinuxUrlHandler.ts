@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import type * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -79,14 +80,16 @@ const escapeUrlHandlerExecTarget = (value: string): string =>
 export function renderUrlHandlerDesktopEntry(input: {
   readonly displayName: string;
   readonly execTarget: string;
+  readonly execArgs?: ReadonlyArray<string>;
   readonly scheme: string;
   readonly iconPath?: string;
 }): string {
+  const exec = [input.execTarget, ...(input.execArgs ?? [])].map(escapeUrlHandlerExecTarget);
   return [
     "[Desktop Entry]",
     "Type=Application",
     `Name=${escapeDesktopEntryString(input.displayName)}`,
-    `Exec=${escapeUrlHandlerExecTarget(input.execTarget)} %U`,
+    `Exec=${exec.join(" ")} %U`,
     ...(input.iconPath === undefined ? [] : [`Icon=${escapeDesktopEntryString(input.iconPath)}`]),
     "Terminal=false",
     "NoDisplay=true",
@@ -126,6 +129,18 @@ export function replacedVersionedAppImagePath(input: {
     !APPIMAGE_NAME_VERSION.test(currentName)
     ? previous
     : null;
+}
+
+// Bare Electron starts its default app, which never reaches this app's single-instance handoff.
+export function unpackagedLaunchArgs(
+  argv: ReadonlyArray<string>,
+  cwd: string,
+  path: Path.Path,
+): Array<string> {
+  const scriptIndex = argv.findIndex((arg, index) => index > 0 && !arg.startsWith("-"));
+  const script = argv[scriptIndex];
+  if (script === undefined) return [];
+  return [...argv.slice(1, scriptIndex), path.resolve(cwd, script)];
 }
 
 // Docks may look up the Wayland app id without a desktop entry; icon theme lookups are case-sensitive.
@@ -175,6 +190,9 @@ export const make = Effect.gen(function* () {
     const content = renderUrlHandlerDesktopEntry({
       displayName: environment.displayName,
       execTarget,
+      ...(environment.isPackaged
+        ? {}
+        : { execArgs: unpackagedLaunchArgs(process.argv, process.cwd(), environment.path) }),
       scheme,
       ...(environment.isPackaged ? { iconPath } : {}),
     });
