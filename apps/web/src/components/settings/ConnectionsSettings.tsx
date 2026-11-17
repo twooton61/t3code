@@ -19,6 +19,7 @@ import {
   managedCapabilityDenial,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -76,8 +77,10 @@ import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { type ServerClientSessionRecord } from "~/environments/primary";
+import { EnvironmentRow } from "./EnvironmentRow";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { useUiStateStore } from "~/uiStateStore";
 import {
@@ -1698,6 +1701,24 @@ function ConnectionsSettingsContent({
           </div>
         }
       >
+        {primaryEnvironment ? (
+          <EnvironmentRow
+            kind={resolveEnvironmentMachineKind(primaryEnvironment.serverConfig)}
+            label={primaryEnvironment.label}
+            subtitle={`${connectionStatusText(primaryEnvironment.connection)} · Hosts this app`}
+            below={
+              primaryEnvironment.displayUrl ? (
+                <p className="break-all text-xs text-muted-foreground">
+                  {primaryEnvironment.displayUrl}
+                </p>
+              ) : null
+            }
+          >
+            <Badge variant="secondary" size="sm">
+              Primary
+            </Badge>
+          </EnvironmentRow>
+        ) : null}
         {listedEnvironments.map((environment) => (
           <SavedBackendListRow
             key={environment.environmentId}
