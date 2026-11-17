@@ -57,6 +57,11 @@ or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted r
 project** in the command palette and **Settings → Projects** work too. A list keeps its order
 while it is open, so a new pin moves up the next time you open it.
 
+To keep a project on a fixed number in the **New thread in...** list, choose it under
+**Shortcut** in **Settings → Projects**. The project then always sits on that row, so `mod+1`
+picks it, and the list opens with the `mod+1` project highlighted. Projects without a shortcut
+fill the open rows in their usual order. Shortcuts are saved per device.
+
 Archive a project you are done with in **Settings → Projects**. It leaves the project pickers.
 Its threads, settings, and files stay as they are, and archived projects still show in the
 Settings project list, marked **Archived**. Choose one there and select **Unarchive** to bring it

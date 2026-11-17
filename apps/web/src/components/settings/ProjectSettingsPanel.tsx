@@ -5,7 +5,14 @@ import { useEnvironmentsWithScope } from "../../state/session";
 import { mapAtomCommandResult, settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
-import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
+import {
+  THREAD_JUMP_KEYBINDING_COMMANDS,
+  type EnvironmentId,
+  type SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { shortcutLabelForCommand } from "../../keybindings";
+import { primaryServerKeybindingsAtom } from "../../state/server";
 import {
   checkProjectAccess,
   reportProjectFailure,
@@ -23,7 +30,10 @@ import { readLocalApi } from "../../localApi";
 import { derivePhysicalProjectKey } from "@t3tools/client-runtime/state/project-grouping";
 import {
   PROJECT_GROUPING_MODE_LABELS,
+  PROJECT_SHORTCUT_SLOTS,
+  projectShortcutSlotOf,
   withProjectGroupingOverride,
+  withProjectShortcutSlot,
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
@@ -147,6 +157,70 @@ interface ProjectSelection {
   readonly environmentId: EnvironmentId | null;
   readonly checkoutKey: string | null;
   readonly memberKeys: ReadonlyArray<string>;
+}
+
+// Slots are client settings, like grouping rules, so they need no project write access.
+function ProjectShortcutSelect({ members }: { members: ReadonlyArray<SidebarProjectGroupMember> }) {
+  const projectKeys = members.map((member) => member.physicalProjectKey);
+  const slots = useClientSettings((settings) => settings.projectShortcutSlots);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const groups = useSettingsProjectGroups();
+  const selection = projectShortcutSlotOf(slots, projectKeys);
+  const slotLabel = (slot: number) =>
+    shortcutLabelForCommand(keybindings, THREAD_JUMP_KEYBINDING_COMMANDS[slot - 1] ?? null) ??
+    `Shortcut ${slot}`;
+  const holderName = (slot: number) => {
+    const projectKey = slots[String(slot)];
+    if (projectKey === undefined || projectKeys.includes(projectKey)) return null;
+    return (
+      groups.find((group) =>
+        group.memberProjects.some((member) => member.physicalProjectKey === projectKey),
+      )?.displayName ?? null
+    );
+  };
+  return (
+    <Select
+      value={selection === null ? "none" : String(selection)}
+      onValueChange={(value) => {
+        const slot = value === "none" ? null : Number(value);
+        if (slot !== null && !PROJECT_SHORTCUT_SLOTS.includes(slot)) return;
+        persistClientSettingsUpdate((current) => ({
+          ...current,
+          projectShortcutSlots: withProjectShortcutSlot(
+            current.projectShortcutSlots,
+            projectKeys,
+            slot,
+          ),
+        })).catch((error) => {
+          console.error("Failed to save project shortcut", error);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not save project shortcut",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        });
+      }}
+    >
+      <SelectTrigger size="sm" aria-label="New thread picker shortcut">
+        <SelectValue>{selection === null ? "Automatic" : slotLabel(selection)}</SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="end" alignItemWithTrigger={false}>
+        <SelectItem hideIndicator value="none">
+          Automatic
+        </SelectItem>
+        {PROJECT_SHORTCUT_SLOTS.map((slot) => {
+          const holder = holderName(slot);
+          return (
+            <SelectItem hideIndicator key={slot} value={String(slot)}>
+              {holder ? `${slotLabel(slot)} (replaces ${holder})` : slotLabel(slot)}
+            </SelectItem>
+          );
+        })}
+      </SelectPopup>
+    </Select>
+  );
 }
 
 function sameProjectSelection(a: ProjectSelection | null, b: ProjectSelection): boolean {
@@ -616,6 +690,11 @@ function ProjectDetail({
                 </Button>
               </div>
             }
+          />
+          <SettingsRow
+            title="Shortcut"
+            description="Its number in the New thread picker. Projects without one fill the open numbers."
+            control={<ProjectShortcutSelect members={allMembers} />}
           />
           {canOrganize ? (
             <>

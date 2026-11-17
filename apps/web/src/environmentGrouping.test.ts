@@ -8,8 +8,10 @@ import {
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
+  orderByProjectShortcutSlots,
   resolveSidebarProjectScopeKey,
   getSidebarProjectSettingsKey,
+  withProjectShortcutSlot,
 } from "./sidebarProjectGrouping";
 import type { Project } from "./types";
 
@@ -300,5 +302,19 @@ describe("environment grouping", () => {
       preferredProjectRef: { environmentId: current.environmentId, projectId: current.id },
     });
     expect(entries.map((entry) => entry.group.displayName)).toEqual(["current", "pinned", "other"]);
+  });
+
+  it("puts shortcut-slotted projects on their rows and fills open rows in order", () => {
+    const keysOf = (name: string) => [`env:/tmp/${name}`, `remote:/tmp/${name}`];
+    const order = (slots: Record<string, string>) =>
+      orderByProjectShortcutSlots(["a", "b", "c", "d"], slots, keysOf);
+
+    expect(order({})).toEqual(["a", "b", "c", "d"]);
+    expect(order({ "1": "remote:/tmp/c", "3": "env:/tmp/d" })).toEqual(["c", "a", "d", "b"]);
+    expect(order({ "9": "env:/tmp/a", "1": "env:/tmp/gone" })).toEqual(["b", "c", "d", "a"]);
+
+    const slots = withProjectShortcutSlot({ "1": "env:/tmp/a", "2": "env:/tmp/b" }, keysOf("b"), 1);
+    expect(slots).toEqual({ "1": "env:/tmp/b" });
+    expect(withProjectShortcutSlot(slots, keysOf("b"), null)).toEqual({});
   });
 });

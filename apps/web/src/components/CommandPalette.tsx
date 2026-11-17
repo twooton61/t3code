@@ -275,7 +275,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
-import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
+import {
+  buildSidebarProjectPickerEntries,
+  orderByProjectShortcutSlots,
+} from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { readIssueListPreferences } from "~/components/issue/issueListPreferences";
@@ -866,7 +869,14 @@ function OpenCommandPaletteDialog(props: {
           ? undefined
           : projectPickerEntries.find((entry) => entry.isPreferred);
       const projectItems = buildNewThreadInProjectItems({
-        projects: pickerProjects.filter((project) => !isScratch(project)),
+        projects: orderByProjectShortcutSlots(
+          pickerProjects.filter((project) => !isScratch(project)),
+          clientSettings.projectShortcutSlots,
+          (project) =>
+            projectGroupByTargetKey
+              .get(`${project.environmentId}:${project.id}`)
+              ?.memberProjects.map((member) => member.physicalProjectKey) ?? [],
+        ),
         currentProjectKey: currentEntry
           ? `${currentEntry.targetProject.environmentId}:${currentEntry.targetProject.id}`
           : null,
@@ -891,7 +901,7 @@ function OpenCommandPaletteDialog(props: {
       });
       if (scratchTargetEnvironmentId === null) return projectItems;
 
-      const noProjectIndex = newThreadNoProjectIndex(
+      const defaultNoProjectIndex = newThreadNoProjectIndex(
         projectPickerEntries.map(({ group, targetProject, isPreferred }) => ({
           isScratch: isScratchProject(
             targetProject,
@@ -901,6 +911,11 @@ function OpenCommandPaletteDialog(props: {
           isPreferred,
         })),
       );
+      // An assigned Ctrl+1 project keeps the first, highlighted row.
+      const noProjectIndex =
+        clientSettings.projectShortcutSlots["1"] !== undefined
+          ? Math.max(defaultNoProjectIndex, 1)
+          : defaultNoProjectIndex;
       return [
         ...projectItems.slice(0, noProjectIndex),
         {

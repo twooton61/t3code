@@ -1,7 +1,8 @@
-import type {
-  EnvironmentId,
-  ScopedProjectRef,
-  SidebarProjectGroupingMode,
+import {
+  THREAD_JUMP_KEYBINDING_COMMANDS,
+  type EnvironmentId,
+  type ScopedProjectRef,
+  type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
 import {
   buildProjectGroups,
@@ -26,6 +27,59 @@ export function withProjectGroupingOverride(
   if (selection === "inherit") delete next[overrideKey];
   else next[overrideKey] = selection;
   return next;
+}
+
+export const PROJECT_SHORTCUT_SLOTS = THREAD_JUMP_KEYBINDING_COMMANDS.map((_, index) => index + 1);
+
+export function projectShortcutSlotOf(
+  slots: Readonly<Record<string, string>>,
+  projectKeys: ReadonlyArray<string>,
+): number | null {
+  const slot = PROJECT_SHORTCUT_SLOTS.find((candidate) => {
+    const projectKey = slots[String(candidate)];
+    return projectKey !== undefined && projectKeys.includes(projectKey);
+  });
+  return slot ?? null;
+}
+
+export function withProjectShortcutSlot(
+  slots: Readonly<Record<string, string>>,
+  projectKeys: ReadonlyArray<string>,
+  slot: number | null,
+): Record<string, string> {
+  const next = Object.fromEntries(
+    Object.entries(slots).filter(([, projectKey]) => !projectKeys.includes(projectKey)),
+  );
+  const [projectKey] = projectKeys;
+  if (slot !== null && projectKey !== undefined) next[String(slot)] = projectKey;
+  return next;
+}
+
+// Slot n takes row n. Open rows take the remaining items in their usual order.
+export function orderByProjectShortcutSlots<T>(
+  items: ReadonlyArray<T>,
+  slots: Readonly<Record<string, string>>,
+  projectKeysOf: (item: T) => ReadonlyArray<string>,
+): T[] {
+  const slotted = new Map<number, T>();
+  for (const slot of PROJECT_SHORTCUT_SLOTS) {
+    const projectKey = slots[String(slot)];
+    if (projectKey === undefined) continue;
+    const placed = new Set(slotted.values());
+    const item = items.find(
+      (candidate) => !placed.has(candidate) && projectKeysOf(candidate).includes(projectKey),
+    );
+    if (item !== undefined) slotted.set(slot - 1, item);
+  }
+  if (slotted.size === 0) return [...items];
+  const placed = new Set(slotted.values());
+  const rest = items.filter((item) => !placed.has(item));
+  const ordered: T[] = [];
+  for (let row = 0; ordered.length < items.length; row += 1) {
+    const item = slotted.get(row) ?? rest.shift();
+    if (item !== undefined) ordered.push(item);
+  }
+  return ordered;
 }
 
 export type EnvironmentPresence = "local-only" | "remote-only" | "mixed";
