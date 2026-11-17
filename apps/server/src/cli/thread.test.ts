@@ -28,6 +28,7 @@ import {
   readLatestMessages,
   resolveProject,
   threadCommand,
+  threadWorkspaceStrategy,
   type ThreadTools,
   titleFromMessage,
   waitForRun,
@@ -573,4 +574,38 @@ it.live("resolves a path inside a git worktree of the project's repository to th
     assert.include(ambiguous.message, "sample (project-sample)");
     assert.include(ambiguous.message, "feature (project-feature)");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each([null, "/tmp/project-worktree"])("--on-thread reuses checkout %s", (worktreePath) =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project-1");
+    const { tools } = scriptedTools({
+      t3_thread_read: [
+        { thread: { projectId, branch: "fix/parent", worktreePath, archived: false } },
+      ],
+    });
+    const strategy = yield* threadWorkspaceStrategy(tools, projectId, threadId);
+    assert.deepStrictEqual(
+      strategy,
+      worktreePath === null
+        ? { type: "root", branch: "fix/parent" }
+        : { type: "existing_worktree", worktreePath, branch: "fix/parent" },
+    );
+  }),
+);
+
+it.effect.each([
+  { projectId: ProjectId.make("another-project"), branch: "main", archived: false },
+  { projectId: ProjectId.make("project-1"), branch: null, archived: false },
+  { projectId: ProjectId.make("project-1"), branch: "main", archived: true },
+])("--on-thread rejects invalid parent %j", (invalid) =>
+  Effect.gen(function* () {
+    const { tools } = scriptedTools({
+      t3_thread_read: [{ thread: { ...invalid, worktreePath: null } }],
+    });
+    const error = yield* Effect.flip(
+      threadWorkspaceStrategy(tools, ProjectId.make("project-1"), threadId),
+    );
+    assert.strictEqual(error._tag, "ThreadUsageError");
+  }),
 );

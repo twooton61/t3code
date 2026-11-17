@@ -348,7 +348,23 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           });
         }
         const nestedUnderThreadId =
-          caller === undefined ? undefined : nestingParentOf(caller, projectId);
+          input.nestedUnderThreadId ??
+          (caller === undefined ? undefined : nestingParentOf(caller, projectId));
+        if (!replaying && input.nestedUnderThreadId !== undefined) {
+          const parent = yield* context.threads
+            .getThreadShell(input.nestedUnderThreadId)
+            .pipe(Effect.mapError(unavailable));
+          if (
+            parent === null ||
+            parent.deletedAt !== null ||
+            parent.archivedAt !== null ||
+            nestingParentOf(parent, projectId) !== parent.id
+          )
+            return yield* new OrchestratorMcpFailure({
+              code: "invalid_request",
+              message: "The nesting parent must be an active thread in the same project.",
+            });
+        }
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,

@@ -8,6 +8,7 @@ import {
   RunId,
   ThreadId,
   TrimmedNonEmptyString,
+  type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   type OrchestratorMcpThreadListItem,
   type OrchestratorMcpThreadRun,
   type OrchestratorMcpThreadStatus,
@@ -26,6 +27,8 @@ import * as Schema from "effect/Schema";
 import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
+
+import { LocalAttachments, uploadThreadAttachments } from "./threadAttachments.ts";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
@@ -217,7 +220,7 @@ export type ThreadTools = ReturnType<typeof makeThreadTools>;
  */
 const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E, R>(
   flags: { readonly baseDir: Option.Option<string>; readonly json: boolean },
-  run: (tools: ThreadTools) => Effect.Effect<A, E, R>,
+  run: (tools: ThreadTools, origin: string) => Effect.Effect<A, E, R>,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel, { quietLogs: flags.json });
@@ -246,7 +249,7 @@ const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E,
       authorization: `Bearer ${issued.token}`,
       clientName: "t3-thread-cli",
     }).pipe(Effect.mapError((cause) => new ThreadServerUnreachableError({ origin, cause })));
-    return yield* run(makeThreadTools(session, origin));
+    return yield* run(makeThreadTools(session, origin), origin);
   }).pipe(
     Effect.scoped,
     Effect.provideService(References.MinimumLogLevel, minimumLogLevel),
@@ -259,14 +262,17 @@ const withThreadTools = Effect.fn("cli.thread.withThreadTools")(function* <A, E,
   );
 });
 
-const readMessageArgument = Effect.fn("cli.thread.readMessage")(function* (argument: string) {
+const readMessageArgument = Effect.fn("cli.thread.readMessage")(function* (
+  argument: string,
+  allowEmpty = false,
+) {
   const text =
     argument === "-"
       ? yield* Stdio.Stdio.pipe(
           Effect.flatMap((stdio) => stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)),
         )
       : argument;
-  if (text.trim().length === 0) {
+  if (!allowEmpty && text.trim().length === 0) {
     return yield* new ThreadUsageError({ detail: "The message is empty." });
   }
   return text;
@@ -700,6 +706,31 @@ export const titleFromMessage = (message: string) => {
   return `${firstLine.slice(0, end).trimEnd()}…`;
 };
 
+/** Match the client's “New thread on…” action: reuse the checkout, without forking history. */
+export const threadWorkspaceStrategy = Effect.fn("cli.thread.threadWorkspaceStrategy")(function* (
+  tools: ThreadTools,
+  projectId: ProjectId,
+  threadId: ThreadId,
+) {
+  const { thread } = yield* tools.call(
+    "t3_thread_read",
+    { threadId, limit: 1, maxCharsPerItem: 1, runLimit: 1 },
+    OrchestratorMcpThreadReadResult,
+  );
+  if (thread.projectId !== projectId || thread.archived || !thread.branch) {
+    return yield* new ThreadUsageError({
+      detail: "--on-thread needs an active thread with a branch in the selected project.",
+    });
+  }
+  return thread.worktreePath === null
+    ? { type: "root" as const, branch: thread.branch }
+    : {
+        type: "existing_worktree" as const,
+        worktreePath: thread.worktreePath,
+        branch: thread.branch,
+      };
+});
+
 const launchWorkspaceStrategy = (input: {
   readonly worktree: Option.Option<string>;
   readonly branch: Option.Option<string>;
@@ -838,6 +869,20 @@ const threadStartCommand = Command.make("start", {
     ),
     Flag.atLeast(0),
   ),
+  attachments: Flag.String("attachments-json").pipe(
+    Flag.withDescription(
+      "Local attachments as JSON [{path,name,mimeType,type}]. Up to eight; uploaded before launch.",
+    ),
+    Flag.withSchema(Schema.fromJsonString(LocalAttachments)),
+    Flag.optional,
+  ),
+  onThread: Flag.String("on-thread").pipe(
+    Flag.withDescription(
+      "Start a fresh, nested conversation on this thread's branch and checkout.",
+    ),
+    Flag.withSchema(ThreadId),
+    Flag.optional,
+  ),
   worktree: Flag.String("worktree").pipe(
     Flag.withDescription(
       "Run in a new git worktree based on this branch, tag, or commit, instead of the project folder.",
@@ -854,24 +899,58 @@ const threadStartCommand = Command.make("start", {
   Command.withDescription("Start a thread in a project and print its id."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const message = yield* readMessageArgument(flags.message);
-      const workspaceStrategy = yield* launchWorkspaceStrategy(flags);
+      const files = Option.getOrElse(flags.attachments, () => []);
+      const message = yield* readMessageArgument(flags.message, files.length > 0);
+      let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | void =
+        yield* launchWorkspaceStrategy(flags);
+      if (
+        Option.isSome(flags.onThread) &&
+        (Option.isSome(flags.worktree) || Option.isSome(flags.branch))
+      ) {
+        return yield* new ThreadUsageError({
+          detail: "--on-thread cannot be combined with --worktree or --branch.",
+        });
+      }
+      if (Option.isSome(flags.provider) !== Option.isSome(flags.model)) {
+        return yield* new ThreadUsageError({ detail: "--provider and --model go together." });
+      }
       const modelSelection = yield* launchModelSelection(flags);
       const title = yield* decodeTitle(
-        Option.getOrElse(flags.title, () => titleFromMessage(message)),
+        Option.getOrElse(flags.title, () =>
+          titleFromMessage(message.trim() || files.map((file) => file.name).join(", ")),
+        ),
       ).pipe(Effect.mapError(() => new ThreadUsageError({ detail: "The title is empty." })));
       yield* withThreadTools(
         flags,
-        Effect.fn("cli.thread.start")(function* (tools) {
+        Effect.fn("cli.thread.start")(function* (tools, origin) {
           const project = yield* resolveProject(tools, flags.project);
+          if (Option.isSome(flags.onThread)) {
+            workspaceStrategy = yield* threadWorkspaceStrategy(
+              tools,
+              project.id,
+              flags.onThread.value,
+            );
+          }
+          const attachments = yield* uploadThreadAttachments(tools, origin, files).pipe(
+            Effect.mapError(
+              () =>
+                new ThreadUsageError({
+                  detail: "Could not upload attachments. Check the files and retry.",
+                }),
+            ),
+          );
           const launched = yield* tools.call(
             "t3_thread_launch",
             {
               projectId: project.id,
               title,
               message,
+              ...(attachments.length ? { attachments } : {}),
               ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
               ...(modelSelection === undefined ? {} : { modelSelection }),
+              ...(Option.isSome(flags.onThread)
+                ? { nestedUnderThreadId: flags.onThread.value }
+                : {}),
             },
             ThreadLaunchResult,
           );

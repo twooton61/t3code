@@ -60,6 +60,7 @@ const clientLaunchHarness = (input: {
   readonly workspaceRoot?: string;
   readonly checkWorktreeBase?: ThreadLaunch.ThreadLaunchService["Service"]["checkWorktreeBase"];
   readonly hostedAppUrl?: string;
+  readonly nestingParent?: OrchestrationV2ThreadShell;
   /** The orchestrator refuses the new thread's mode, as under a managed ceiling. */
   readonly refusedByCeiling?: true;
 }) => {
@@ -112,6 +113,7 @@ const clientLaunchHarness = (input: {
     Layer.mock(ThreadManagement.ThreadManagementService)({
       // A thread exists once a launch started it.
       getThreadShell: (threadId) => {
+        if (input.nestingParent?.id === threadId) return Effect.succeed(input.nestingParent);
         const launch = input.launched.find((candidate) => candidate.threadId === threadId);
         return Effect.succeed(
           launch === undefined
@@ -191,6 +193,60 @@ const clientLaunchHarness = (input: {
   );
   return { projectId, modelSelection, projectDefaults, dependencies: layerDependencies };
 };
+
+it.effect.each(["valid", "missing", "other-project", "deleted", "archived", "side-chat"])(
+  "launch-time nesting validates the parent (%s)",
+  (state) =>
+    Effect.gen(function* () {
+      const parentId = ThreadId.make("thread:parent");
+      const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+      const { projectId, dependencies } = clientLaunchHarness({
+        runtimeModeCeiling: "full-access",
+        launched,
+        ...(state === "missing"
+          ? {}
+          : {
+              nestingParent: {
+                id: parentId,
+                projectId: ProjectId.make(
+                  state === "other-project" ? "other" : "project:client-target",
+                ),
+                deletedAt: state === "deleted" ? "2026-01-01T00:00:00Z" : null,
+                archivedAt: state === "archived" ? "2026-01-01T00:00:00Z" : null,
+                lineage: {
+                  rootThreadId: state === "side-chat" ? ThreadId.make("thread:root") : parentId,
+                  parentThreadId: state === "side-chat" ? ThreadId.make("thread:root") : null,
+                  relationshipToParent: null,
+                  sideChat: state === "side-chat",
+                },
+              } as OrchestrationV2ThreadShell,
+            }),
+      });
+      const toolkit = yield* ProjectToolkit.pipe(
+        Effect.provide(
+          McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+            Layer.provide(dependencies),
+          ),
+        ),
+      );
+      const result = yield* toolkit
+        .handle("t3_thread_launch", {
+          projectId,
+          title: "Nested launch",
+          message: "Start work",
+          nestedUnderThreadId: parentId,
+        })
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+      if (state === "valid") {
+        expect(result.at(-1)?.result).toMatchObject({ projectId });
+        expect(launched[0]?.nestedUnderThreadId).toBe(parentId);
+        expect(launched[0]?.initialMessage?.text).toBe("Start work");
+      } else {
+        expect(result.at(-1)?.result).toMatchObject({ code: "invalid_request" });
+        expect(launched).toHaveLength(0);
+      }
+    }),
+);
 
 it.effect(
   "a client launches with the project's default model and mode, capped at its ceiling",
