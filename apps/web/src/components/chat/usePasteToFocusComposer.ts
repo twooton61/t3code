@@ -1,3 +1,4 @@
+import { readClipboardTextWithLinks } from "../composerClipboardLinks";
 import { pasteTextToFocusComposer, shouldRedirectInputToComposer } from "./composerFocusRedirect";
 import { readPastedComposerContext } from "../composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
@@ -39,7 +40,9 @@ export function usePasteToFocusComposer(
       pasteAsTextShortcutUntilRef.current = 0;
       if (
         ((readPastedComposerContext(clipboardData)?.records.length ?? 0) === 0 &&
-          composerRef.current?.pasteTextAtEnd(text, { bypassAutoAttachment })) ||
+          composerRef.current?.pasteTextAtEnd(readClipboardTextWithLinks(clipboardData), {
+            bypassAutoAttachment,
+          })) ||
         composerRef.current?.insertTextAtEnd(text, { clipboardData })
       ) {
         event.preventDefault();

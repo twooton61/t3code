@@ -87,7 +87,7 @@ private final class ComposerTextView: UITextView {
 
   var onPasteImages: (([String]) -> Void)?
   var onPasteContext: (([String: String]) -> Void)?
-  var onPasteText: ((String, NSRange) -> Void)?
+  var onPasteText: ((String, NSRange, String) -> Void)?
   var clipboardFragment = ""
   var onSubmit: ((Bool) -> Void)?
   var isReadOnly = false
@@ -250,10 +250,12 @@ private final class ComposerTextView: UITextView {
         return
       }
     }
-    // pasteboard.string is only the first item; super.paste inserts every text item.
+    let html = pasteboard.numberOfItems == 1 ? context["html", default: ""] : ""
+    let hasLinks = html.range(of: "<a(?:\\s|>)", options: .regularExpression.union(.caseInsensitive)) != nil
     if !bypassTextPasteInterception,
-       let text = pasteboard.strings?.joined(), shouldInterceptTextPaste(text) {
-      onPasteText?(text, selectedRange)
+       let text = pasteboard.strings?.joined(),
+       shouldInterceptTextPaste(text) || (textPasteThresholdBytes > 0 && hasLinks) {
+      onPasteText?(text, selectedRange, html)
       return
     }
     // read() sees only the first item; native paste keeps every item of a longer pasteboard.
@@ -549,7 +551,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       payload["selection"] = ["start": selection.start, "end": selection.end]
       self.onComposerPasteContext(payload)
     }
-    textView.onPasteText = { [weak self] text, _ in
+    textView.onPasteText = { [weak self] text, _, html in
       guard let self else { return }
       let selection = self.sourceSelection()
       self.nativeEventCount += 1
@@ -559,6 +561,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         "eventCount": self.nativeEventCount,
         "resetGeneration": self.resetGeneration,
         "text": text,
+        "html": html,
         "selection": ["start": selection.start, "end": selection.end],
       ])
     }

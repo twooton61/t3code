@@ -243,7 +243,7 @@ func interceptedPaste(_ items: [String]) -> String? {
   let editor = ComposerTextView()
   editor.textPasteThresholdBytes = 32 * 1024
   var intercepted: String?
-  editor.onPasteText = { text, _ in intercepted = text }
+  editor.onPasteText = { text, _, _ in intercepted = text }
   UIPasteboard.general.items = items.map { [UTType.utf8PlainText.identifier: $0] }
   editor.paste(nil)
   return intercepted

@@ -1079,3 +1079,31 @@ describe("an Arabic line", () => {
     );
   });
 });
+
+it.each(
+  [
+    {
+      name: "a linked label in a copied list item",
+      plain: "Audit Internal QA for gaps.",
+      html: '<ul><li>Audit <a href="https://app.basecamp.com/boards/qa">Internal QA</a> for gaps.</li></ul>',
+      expected: "Audit [Internal QA](https://app.basecamp.com/boards/qa) for gaps.",
+    },
+  ].flatMap((testCase) =>
+    [false, true].map((richTextEnabled) => ({ ...testCase, richTextEnabled })),
+  ),
+)(
+  "preserves clipboard links: $name (rich text: $richTextEnabled)",
+  async ({ plain, html, expected, richTextEnabled }) => {
+    await using screen = await mountEditor("", richTextEnabled);
+    const { editor } = screen;
+    await act(async () => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", plain);
+      clipboardData.setData("text/html", html);
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData, cancelable: true }),
+      );
+    });
+    expect(serializeEditorDoc(editor.state.doc).value).toBe(expected);
+  },
+);

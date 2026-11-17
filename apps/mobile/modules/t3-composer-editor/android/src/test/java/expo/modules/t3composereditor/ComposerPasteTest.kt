@@ -56,7 +56,7 @@ class ComposerPasteTest {
     clipboard.setPrimaryClip(ClipData.newPlainText("test", pasted))
     editor.setText("before old after")
     editor.setSelection(10, 7)
-    editor.pasteTextListener = { _, _, _ -> error("Inline paste must stay native") }
+    editor.pasteTextListener = { _, _, _, _ -> error("Inline paste must stay native") }
 
     assertTrue(pasteAsText())
     assertEquals("before $pasted after", editor.text.toString())
@@ -70,7 +70,7 @@ class ComposerPasteTest {
     editor.setText("x".repeat(119_999))
     editor.setSelection(10, 7)
     var intercepted: Triple<String, Int, Int>? = null
-    editor.pasteTextListener = { text, start, end -> intercepted = Triple(text, start, end) }
+    editor.pasteTextListener = { text, start, end, _ -> intercepted = Triple(text, start, end) }
 
     assertTrue(pasteAsText())
     assertEquals(Triple("hello", 7, 10), intercepted)
@@ -84,7 +84,7 @@ class ComposerPasteTest {
     clipboard.setPrimaryClip(ClipData.newPlainText("test", "hello"))
     editor.setText("x".repeat(120_000))
     editor.setSelection(12, 7)
-    editor.pasteTextListener = { _, _, _ -> error("Replacement fits the input limit") }
+    editor.pasteTextListener = { _, _, _, _ -> error("Replacement fits the input limit") }
 
     assertTrue(pasteAsText())
     assertEquals("hello", editor.text.substring(7, 12))
@@ -98,7 +98,7 @@ class ComposerPasteTest {
     editor.setText("old")
     editor.setSelection(0, 3)
     var intercepted: String? = null
-    editor.pasteTextListener = { text, _, _ -> intercepted = text }
+    editor.pasteTextListener = { text, _, _, _ -> intercepted = text }
 
     assertTrue(editor.onTextContextMenuItem(android.R.id.paste))
     assertEquals(pasted, intercepted)
@@ -111,7 +111,7 @@ class ComposerPasteTest {
     editor.setText("before old after")
     editor.setSelection(10, 7)
     var intercepted: Triple<String, Int, Int>? = null
-    editor.pasteTextListener = { text, start, end -> intercepted = Triple(text, start, end) }
+    editor.pasteTextListener = { text, start, end, _ -> intercepted = Triple(text, start, end) }
     val connection = editor.onCreateInputConnection(EditorInfo())!!
 
     assertTrue(connection.commitText(pasted, 1))
@@ -130,7 +130,7 @@ class ComposerPasteTest {
     editor.setText("before ")
     editor.setSelection(editor.length())
     var intercepted: Triple<String, Int, Int>? = null
-    editor.pasteTextListener = { text, start, end -> intercepted = Triple(text, start, end) }
+    editor.pasteTextListener = { text, start, end, _ -> intercepted = Triple(text, start, end) }
     val connection = editor.onCreateInputConnection(EditorInfo())!!
 
     for (withTextAttribute in listOf(false, true)) {
@@ -157,7 +157,7 @@ class ComposerPasteTest {
     editor.setText("x".repeat(119_997))
     editor.setSelection(editor.length())
     var intercepted: Triple<String, Int, Int>? = null
-    editor.pasteTextListener = { text, start, end -> intercepted = Triple(text, start, end) }
+    editor.pasteTextListener = { text, start, end, _ -> intercepted = Triple(text, start, end) }
     val connection = editor.onCreateInputConnection(EditorInfo())!!
 
     assertTrue(connection.setComposingText("wor", 1))
@@ -171,7 +171,7 @@ class ComposerPasteTest {
   fun keyboardCommitsAtTheInputLimitInterceptOnlyClipboardInserts() {
     clipboard.setPrimaryClip(ClipData.newPlainText("test", "unrelated clipboard"))
     val intercepted = mutableListOf<String>()
-    editor.pasteTextListener = { text, _, _ -> intercepted.add(text) }
+    editor.pasteTextListener = { text, _, _, _ -> intercepted.add(text) }
     editor.setText("x".repeat(120_000))
     editor.setSelection(editor.length())
     val connection = editor.onCreateInputConnection(EditorInfo())!!
@@ -200,7 +200,7 @@ class ComposerPasteTest {
     editor.setText("before old after")
     editor.setSelection(10, 7)
     val intercepted = mutableListOf<Triple<String, Int, Int>>()
-    editor.pasteTextListener = { text, start, end -> intercepted.add(Triple(text, start, end)) }
+    editor.pasteTextListener = { text, start, end, _ -> intercepted.add(Triple(text, start, end)) }
 
     assertTrue(editor.onTextContextMenuItem(android.R.id.paste))
     assertEquals(listOf(Triple("$first\n\n$last", 7, 10)), intercepted)
@@ -212,7 +212,7 @@ class ComposerPasteTest {
   @Test
   fun regularPasteKeepsClipsWithAnyUriItemNative() {
     editor.textPasteThresholdBytes = 1
-    editor.pasteTextListener = { _, _, _ -> error("URI-backed clips must stay native") }
+    editor.pasteTextListener = { _, _, _, _ -> error("URI-backed clips must stay native") }
     for (uriIndex in 0..2) {
       val items = (0..2).map { index ->
         if (index == uriIndex) {
@@ -251,13 +251,36 @@ class ComposerPasteTest {
   }
 
   @Test
+  fun regularPasteForwardsLinkHtmlWithTheSelectedTextSnapshot() {
+    val html = "<p>See <a href=\"https://example.com/qa\">Internal QA</a>.</p>"
+    clipboard.setPrimaryClip(ClipData.newHtmlText("test", "See Internal QA.", html))
+    editor.setText("before old after")
+    editor.setSelection(10, 7)
+    var receivedHtml: String? = null
+    var received: Triple<String, Int, Int>? = null
+    editor.pasteTextListener = { text, start, end, richHtml ->
+      received = Triple(text, start, end)
+      receivedHtml = richHtml
+    }
+
+    assertTrue(editor.onTextContextMenuItem(android.R.id.paste))
+    assertEquals(Triple("See Internal QA.", 7, 10), received)
+    assertEquals(html, receivedHtml)
+    assertEquals("before old after", editor.text.toString())
+
+    editor.pasteTextListener = { _, _, _, _ -> error("Paste as Text must stay native") }
+    assertTrue(pasteAsText())
+    assertEquals("before See Internal QA. after", editor.text.toString())
+  }
+
+  @Test
   fun readOnlyShortcutDoesNotPasteOrEmitAnEvent() {
     clipboard.setPrimaryClip(ClipData.newPlainText("test", "x".repeat(120_001)))
     editor.setText("unchanged")
     editor.setSelection(editor.length())
     editor.readOnly = true
     var intercepted: String? = null
-    editor.pasteTextListener = { text, _, _ -> intercepted = text }
+    editor.pasteTextListener = { text, _, _, _ -> intercepted = text }
 
     assertFalse(pasteAsText())
     assertEquals("unchanged", editor.text.toString())

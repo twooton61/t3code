@@ -161,13 +161,14 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
       contextGestures.onTouchEvent(event)
       false
     }
-    editor.pasteTextListener = { text, start, end ->
+    editor.pasteTextListener = { text, start, end, html ->
       nativeEventCount += 1
       onComposerPasteText(
         mapOf(
           "value" to editor.text.toString(),
           "eventCount" to nativeEventCount,
           "text" to text,
+          "html" to html,
           "selection" to currentSelectionPayload(start, end),
         ),
       )
@@ -630,7 +631,7 @@ internal class SelectionAwareEditText(
   var selectionListener: ((Int, Int) -> Unit)? = null
   var pasteImagesListener: ((List<String>) -> Unit)? = null
   var pasteContextListener: ((Map<String, String>) -> Unit)? = null
-  var pasteTextListener: ((String, Int, Int) -> Unit)? = null
+  var pasteTextListener: ((String, Int, Int, String) -> Unit)? = null
   var submitListener: ((Boolean) -> Unit)? = null
   var submitEnabled = false
   var returnSends = true
@@ -947,20 +948,27 @@ internal class SelectionAwareEditText(
   private fun pasteInterceptedText(clip: ClipData?, foldLargeText: Boolean = true): Boolean {
     val text = if (textPasteThresholdBytes > 0) clip?.plainText() else null
     if (text.isNullOrEmpty()) return false
-    return interceptPaste(text, foldLargeText)
+    val html = if (foldLargeText && clip != null && clip.itemCount == 1) {
+      clip.getItemAt(0).htmlText.orEmpty()
+    } else {
+      ""
+    }
+    return interceptPaste(text, foldLargeText, html = html)
   }
 
   private fun interceptPaste(
     text: String,
     foldLargeText: Boolean = true,
     start: Int = minOf(selectionStart, selectionEnd).coerceIn(0, length()),
-    end: Int = maxOf(selectionStart, selectionEnd).coerceIn(start, length())
+    end: Int = maxOf(selectionStart, selectionEnd).coerceIn(start, length()),
+    html: String = ""
   ): Boolean {
     val exceedsInputLimit = length().toLong() - (end - start) + text.length > maxInputChars
     val shouldFold = foldLargeText && shouldFoldText(text)
-    val shouldIntercept = exceedsInputLimit || shouldFold
+    val hasLinks = Regex("<a(?:\s|>)", RegexOption.IGNORE_CASE).containsMatchIn(html)
+    val shouldIntercept = exceedsInputLimit || shouldFold || hasLinks
     if (shouldIntercept) {
-      pasteTextListener?.invoke(text, start, end)
+      pasteTextListener?.invoke(text, start, end, html)
     }
     // Let EditText perform ordinary pastes, retaining its native undo history.
     return shouldIntercept

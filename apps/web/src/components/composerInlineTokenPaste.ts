@@ -18,6 +18,8 @@ import {
 
 import { readThreadShell } from "~/state/entities";
 
+import { readClipboardTextWithLinks } from "./composerClipboardLinks";
+
 const threadTitle = (ref: ScopedThreadRef) => readThreadShell(ref)?.title;
 
 // Matches ProseMirror's default clipboard parser, which a custom handlePaste bypasses.
@@ -29,7 +31,7 @@ export function readPastedPlainText(clipboardData: Pick<DataTransfer, "getData">
 export function readPastedComposerContext(
   clipboardData: Pick<DataTransfer, "getData">,
 ): ComposerContextClipboardFragment | null {
-  const pastedText = clipboardData.getData("text/plain");
+  const pastedText = readClipboardTextWithLinks(clipboardData);
   const decodedFragment =
     decodeComposerContextFragment(clipboardData.getData(COMPOSER_CONTEXT_CLIPBOARD_MIME)) ??
     decodeComposerContextClipboardHtml(clipboardData.getData("text/html"));
@@ -70,7 +72,7 @@ export function importPastedComposerText(
     fragment: ComposerContextClipboardFragment,
   ) => ReadonlyMap<string, string>,
 ): string {
-  const pastedText = readPastedPlainText(clipboardData);
+  const pastedText = readClipboardTextWithLinks(clipboardData);
   const fragment = importContextFragment ? readPastedComposerContext(clipboardData) : null;
   const rewrittenIds =
     fragment && fragment.records.length > 0 ? importContextFragment!(fragment) : null;

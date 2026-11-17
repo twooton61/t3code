@@ -1,5 +1,6 @@
 import { copySnapshot } from "./copySnapshot";
 import { VoiceInputSetup } from "./VoiceInputSetup";
+import { readClipboardTextWithLinks } from "../composerClipboardLinks";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import type { ComposerAttachmentInsertion } from "../composerAttachmentInsertion";
@@ -2831,7 +2832,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
 
     if (pastedContext) return;
-    if (!foldPastedText(plainText, bypassAutoAttachment)) {
+    if (!foldPastedText(readClipboardTextWithLinks(event.clipboardData), bypassAutoAttachment)) {
       return;
     }
 

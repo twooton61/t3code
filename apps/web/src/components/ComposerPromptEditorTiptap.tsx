@@ -1445,10 +1445,9 @@ function ComposerPromptEditorTiptapInner(
             return true;
           }
           const importFragment = readCallbacks().importContextFragment;
-          let text =
-            !literalText && importFragment
-              ? importPastedComposerText(clipboardData, importFragment)
-              : pastedText;
+          let text = !literalText
+            ? importPastedComposerText(clipboardData, importFragment)
+            : pastedText;
           const tokens = literalText ? [] : collectComposerPromptInlineTokens(`${text}\n`);
           const isChip = (token: (typeof tokens)[number] | undefined) =>
             token?.type === "mention" ||

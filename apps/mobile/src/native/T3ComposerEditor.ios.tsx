@@ -1,3 +1,4 @@
+import { clipboardTextWithLinks } from "@t3tools/shared/clipboardLinks";
 import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "@t3tools/client-runtime/text-paste";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "@t3tools/contracts";
 import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
@@ -67,6 +68,7 @@ type NativePasteTextEvent = NativeSyntheticEvent<{
   readonly eventCount: number;
   readonly resetGeneration: number;
   readonly text: string;
+  readonly html?: string;
   readonly selection: ComposerEditorSelection;
 }>;
 
@@ -406,7 +408,7 @@ export function ComposerEditor({
         // Sync before capturing async paste targets; props may lag the last native keystroke.
         onChangeText(paste.value);
         onSelectionChange?.(paste.selection);
-        onPasteText?.(paste);
+        onPasteText?.({ ...paste, text: clipboardTextWithLinks(paste.text, paste.html) });
         setMostRecentEventCount(acknowledgedEventCount);
         forceNativeEventRender((sequence) => sequence + 1);
       }}
