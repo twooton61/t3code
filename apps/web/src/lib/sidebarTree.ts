@@ -1,3 +1,5 @@
+import { installTouchContextMenu } from "./touchContextMenu";
+
 const ROW = "[data-sidebar-row]";
 
 /** Ref callback for a sidebar list; installs its keyboard navigation and returns its cleanup. */
@@ -8,6 +10,7 @@ export function attachSidebarTree(element: HTMLElement | null) {
 /**
  * Arrow keys move focus between rows without opening them, as in VS Code's list commands.
  * Rows stay ordinary buttons in the Tab order so screen readers can browse the list.
+ * A touch long-press opens a row's context menu, like a right-click.
  */
 export function installSidebarTree(root: HTMLElement) {
   let focusedId: string | undefined;
@@ -177,7 +180,9 @@ export function installSidebarTree(root: HTMLElement) {
   document.addEventListener("pointerdown", onPointerDown, true);
   root.addEventListener("keydown", onKeyDown, true);
   root.addEventListener("keyup", onKeyUp, true);
+  const detachTouchContextMenu = installTouchContextMenu(root, ROW);
   return () => {
+    detachTouchContextMenu();
     observer.disconnect();
     document.removeEventListener("focusin", onFocus);
     document.removeEventListener("pointerdown", onPointerDown, true);
