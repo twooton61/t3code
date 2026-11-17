@@ -25,7 +25,7 @@ function thread(
     runId: firstRun,
     runStatus: "running",
     activeRunId: null,
-    snoozed: false,
+    quiet: false,
     ...state,
   };
 }
@@ -139,11 +139,11 @@ describe("nextBackgroundThreadAnnouncement", () => {
     ).toEqual(["Needs your input: Update docs"]);
   });
 
-  it("keeps a snoozed thread quiet, even after it wakes", () => {
+  it("keeps a snoozed or silenced thread quiet, even after it wakes", () => {
     expect(
       speak([
-        { threads: [login({ snoozed: true })] },
-        { threads: [login({ snoozed: true, runStatus: "completed" })] },
+        { threads: [login({ quiet: true })] },
+        { threads: [login({ quiet: true, runStatus: "completed" })] },
         { threads: [login({ runStatus: "completed" })] },
       ]),
     ).toEqual([]);

@@ -644,6 +644,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pin.reorder":
     case "thread.active.reorder":
     case "thread.tag.set":
+    case "thread.nest.set":
+    case "thread.notifications.set":
     case "thread.visit":
     case "thread.mark-unread":
     case "thread.metadata.update":
@@ -3775,6 +3777,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
         ? {}
         : { delegatedFrom: command.delegatedFrom }),
+      ...(command.nestedUnderThreadId === undefined
+        ? {}
+        : { nestedUnderThreadId: command.nestedUnderThreadId }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
@@ -4101,6 +4106,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unpin"
           | "thread.pin.reorder"
           | "thread.tag.set"
+          | "thread.nest.set"
+          | "thread.notifications.set"
           | "thread.active.reorder"
           | "thread.mark-unread"
           | "thread.metadata.update"
@@ -4227,6 +4234,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandType: command.type,
           cause: `Thread ${command.threadId} is no longer empty.`,
         });
+    }
+    if (command.type === "thread.nest.set" && command.parentThreadId !== null) {
+      const parentThreadId = command.parentThreadId;
+      const rejectNest = (cause: string) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        });
+      if (parentThreadId === command.threadId) {
+        return yield* rejectNest(`Thread ${command.threadId} cannot nest under itself.`);
+      }
+      const parent = yield* projectionStore
+        .getThread(parentThreadId)
+        .pipe(Effect.mapError(() => rejectNest(`Thread ${parentThreadId} was not found.`)));
+      if (parent.deletedAt !== null || parent.projectId !== thread.projectId) {
+        return yield* rejectNest(
+          `Thread ${command.threadId} can only nest under a thread in the same project.`,
+        );
+      }
     }
     if (command.type === "thread.archive" && thread.archivedAt !== null) {
       return yield* new OrchestratorDispatchError({
@@ -4798,6 +4825,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : current.filter((tag) => tag !== command.tag),
           };
         }
+        case "thread.nest.set":
+          return { ...thread, nestedUnderThreadId: command.parentThreadId };
+        case "thread.notifications.set":
+          return { ...thread, notifications: command.notifications };
         case "thread.mark-unread": {
           // Retire the wake before rewinding the visit, preserving its settlement timer.
           const snoozeExpired =
@@ -5247,6 +5278,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.active-reordered" as const;
         case "thread.tag.set":
           return "thread.tags-updated" as const;
+        case "thread.nest.set":
+          return "thread.nesting-updated" as const;
+        case "thread.notifications.set":
+          return "thread.notifications-updated" as const;
         case "thread.mark-unread":
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
@@ -15099,6 +15134,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pin.reorder":
       case "thread.active.reorder":
       case "thread.tag.set":
+      case "thread.nest.set":
+      case "thread.notifications.set":
       case "thread.mark-unread":
       case "thread.pull-request.link":
       case "thread.pull-request.unlink":

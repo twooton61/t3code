@@ -389,6 +389,8 @@ export function HomeScreen(props: HomeScreenProps) {
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
+    collapsedNestKeys,
+    toggleNestGroup,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(props.threads);
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
@@ -431,6 +433,7 @@ export function HomeScreen(props: HomeScreenProps) {
     workingShelfExpanded,
     snoozedShelfExpanded,
     settledShelfExpanded,
+    collapsedNestKeys,
     selectedThreadKey,
   });
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
@@ -529,6 +532,10 @@ export function HomeScreen(props: HomeScreenProps) {
         onNewThreadOnBranch={props.onNewThreadOnBranch}
         thread={thread}
         variant={item.item.variant}
+        nested={item.item.nested}
+        nestedChildCount={item.item.nestedChildCount}
+        nestedCollapsed={item.item.nestedCollapsed}
+        onToggleNestedGroup={toggleNestGroup}
         hasQueuedMessages={item.hasQueuedMessages}
         snoozed={item.item.snoozed}
         pinned={item.item.pinned}

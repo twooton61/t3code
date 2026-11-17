@@ -16,8 +16,8 @@ export interface BackgroundThreadSnapshot {
   readonly runStatus: OrchestrationV2RunStatus | null;
   /** The run doing work now, which can be older than a queued run cancelled while it ran. */
   readonly activeRunId: RunId | null;
-  /** A snoozed thread stays hidden until its timer, so it stays quiet too. */
-  readonly snoozed: boolean;
+  /** Snoozed (hidden until its timer) or notifications turned off. */
+  readonly quiet: boolean;
 }
 
 /** The request and its id come from the same source, so a subagent's request never takes the parent's id. */
@@ -66,7 +66,7 @@ export function nextBackgroundThreadAnnouncement(
       requestId: thread.requestId,
       settledRunId: settled ? thread.runId : (before?.settledRunId ?? null),
     });
-    if (before === undefined || thread.key === openThreadKey || thread.snoozed) continue;
+    if (before === undefined || thread.key === openThreadKey || thread.quiet) continue;
     if (
       thread.request !== null &&
       (thread.request !== before.request || thread.requestId !== before.requestId)

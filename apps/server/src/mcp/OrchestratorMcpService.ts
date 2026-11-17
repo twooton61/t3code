@@ -134,7 +134,12 @@ import {
   runtimeModeRank,
   taskPrompt,
 } from "./delegatedTaskModes.ts";
-import { assertTargetWithinLimits, isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
+import {
+  assertTargetWithinLimits,
+  isLiveCallerShell,
+  nestingParentOf,
+  threadNotFound,
+} from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
@@ -3111,6 +3116,7 @@ const make = Effect.gen(function* () {
                 title: request.title,
                 index,
               });
+              const nestedUnderThreadId = nestingParentOf(parent.thread, parent.thread.projectId);
               const initialMessage =
                 request.prompt === undefined
                   ? undefined
@@ -3141,6 +3147,7 @@ const make = Effect.gen(function* () {
                   ...(parent.thread.linkOrigin === undefined
                     ? {}
                     : { linkOrigin: parent.thread.linkOrigin }),
+                  ...(nestedUnderThreadId === undefined ? {} : { nestedUnderThreadId }),
                   ...(initialMessage === undefined ? {} : { initialMessage }),
                 })
                 .pipe(

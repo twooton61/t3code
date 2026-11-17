@@ -27,6 +27,26 @@ const FOLDER_DOT_LABEL = {
   working: ", working",
 } as const;
 
+/** Says whether any thread hidden behind a closed folder or nest parent needs you. */
+export function HiddenThreadsDot(props: { threads: readonly EnvironmentThreadShell[] }) {
+  const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const dot = resolveSidebarFolderDot(
+    props.threads.map((thread) => ({
+      ...thread,
+      lastVisitedAt: resolveThreadLastVisitedAt(
+        thread.lastVisitedAt,
+        localLastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
+      ),
+    })),
+  );
+  if (dot === null) return null;
+  return (
+    <span className={cn("size-1.5 shrink-0 rounded-full", FOLDER_DOT_CLASS_NAME[dot])}>
+      <span className="sr-only">{FOLDER_DOT_LABEL[dot]}</span>
+    </span>
+  );
+}
+
 /** The folder's sidebar tree row; its thread rows name it as their parent. */
 export function sidebarFolderRowId(projectKey: string) {
   return `folder:${projectKey}`;
@@ -51,20 +71,6 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
 }) {
   const { group, collapsed, hiddenThreads } = props;
   const rowId = sidebarFolderRowId(group.projectKey);
-  const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const dot = collapsed
-    ? resolveSidebarFolderDot(
-        hiddenThreads.map((thread) => ({
-          ...thread,
-          lastVisitedAt: resolveThreadLastVisitedAt(
-            thread.lastVisitedAt,
-            localLastVisitedAtById[
-              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
-            ],
-          ),
-        })),
-      )
-    : null;
   return (
     <li
       data-testid="sidebar-project-folder"
@@ -89,11 +95,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
           {group.displayName}
         </span>
-        {dot ? (
-          <span className={cn("size-1.5 shrink-0 rounded-full", FOLDER_DOT_CLASS_NAME[dot])}>
-            <span className="sr-only">{FOLDER_DOT_LABEL[dot]}</span>
-          </span>
-        ) : null}
+        {collapsed ? <HiddenThreadsDot threads={hiddenThreads} /> : null}
         {collapsed && hiddenThreads.length > 0 ? (
           <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground group-hover/project-folder:invisible group-has-[[data-sidebar-action-for]:focus]/project-folder:invisible pointer-coarse:invisible">
             {hiddenThreads.length}

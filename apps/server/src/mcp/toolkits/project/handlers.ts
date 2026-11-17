@@ -36,7 +36,13 @@ import { resolveRuntimeMode } from "../../delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
-import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
+import {
+  nestingParentOf,
+  newCommandId,
+  readCaller,
+  resolveProjectId,
+  unavailable,
+} from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
@@ -341,6 +347,8 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             )?.supportedRuntimeModes,
           });
         }
+        const nestedUnderThreadId =
+          caller === undefined ? undefined : nestingParentOf(caller, projectId);
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,
@@ -365,6 +373,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           ...(linkOrigin === undefined ? {} : { linkOrigin }),
           // Kept only alongside linkOrigin: thread.create drops it otherwise.
           ...(input.delegatedFrom === undefined ? {} : { delegatedFrom: input.delegatedFrom }),
+          ...(nestedUnderThreadId === undefined ? {} : { nestedUnderThreadId }),
         }).pipe(
           Effect.mapError((error) => {
             if (error._tag === "AttachmentClaimError") {

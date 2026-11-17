@@ -3750,6 +3750,68 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         DateTime.toEpochMillis(untaggedShell.updatedAt),
       );
 
+      const childThreadId = ThreadId.make("runtime-layer-lifecycle-child");
+      yield* orchestrator.dispatch({
+        ...create,
+        commandId: CommandId.make("runtime-layer-lifecycle-child-create"),
+        threadId: childThreadId,
+        nestedUnderThreadId: threadId,
+      });
+      const childShell = () =>
+        Effect.map(orchestrator.getShellSnapshot(), (shell) =>
+          shell.threads.find((thread) => thread.id === childThreadId)!,
+        );
+      assert.equal((yield* childShell()).nestedUnderThreadId, threadId);
+      const nestedUpdatedAt = DateTime.toEpochMillis((yield* childShell()).updatedAt);
+      yield* TestClock.adjust("1 minute");
+      const otherProjectId = ProjectId.make("runtime-layer-lifecycle-other-project");
+      yield* seedProject({ ...project, projectId: otherProjectId });
+      const otherProjectThreadId = ThreadId.make("runtime-layer-lifecycle-other-project-thread");
+      yield* orchestrator.dispatch({
+        ...create,
+        commandId: CommandId.make("runtime-layer-lifecycle-other-project-create"),
+        threadId: otherProjectThreadId,
+        projectId: otherProjectId,
+      });
+      for (const [step, parentThreadId] of [
+        ["self", childThreadId],
+        ["other-project", otherProjectThreadId],
+        ["missing", ThreadId.make("runtime-layer-lifecycle-missing")],
+      ] as const) {
+        const rejected = yield* orchestrator
+          .dispatch({
+            type: "thread.nest.set",
+            commandId: CommandId.make(`runtime-layer-lifecycle-nest-${step}`),
+            threadId: childThreadId,
+            parentThreadId,
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(rejected, Orchestrator.OrchestratorDispatchError, step);
+      }
+      yield* orchestrator.dispatch({
+        type: "thread.nest.set",
+        commandId: CommandId.make("runtime-layer-lifecycle-unnest"),
+        threadId: childThreadId,
+        parentThreadId: null,
+      });
+      const unnestedShell = yield* childShell();
+      assert.isNull(unnestedShell.nestedUnderThreadId);
+      // Nesting is not activity either.
+      assert.equal(DateTime.toEpochMillis(unnestedShell.updatedAt), nestedUpdatedAt);
+
+      for (const notifications of ["off", "on"] as const) {
+        yield* orchestrator.dispatch({
+          type: "thread.notifications.set",
+          commandId: CommandId.make(`runtime-layer-lifecycle-notifications-${notifications}`),
+          threadId: childThreadId,
+          notifications,
+        });
+        const notificationsShell = yield* childShell();
+        assert.equal(notificationsShell.notifications, notifications === "off" ? "off" : undefined);
+        // Neither is activity.
+        assert.equal(DateTime.toEpochMillis(notificationsShell.updatedAt), nestedUpdatedAt);
+      }
+
       const preAutoProjection = yield* orchestrator.getThreadProjection(threadId);
       const staleAutoSettle = yield* orchestrator
         .dispatch({

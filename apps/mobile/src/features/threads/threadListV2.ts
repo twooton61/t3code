@@ -32,6 +32,12 @@ import {
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  collapseNestedGroups,
+  groupNestedThreads,
+  nestedRowKey,
+  nestedRowKeys,
+} from "@t3tools/client-runtime/state/thread-nesting";
 import { isListedThreadLineage, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -403,6 +409,11 @@ export interface ThreadListV2Item {
   readonly pinned: boolean;
   readonly wokeAt: string | null;
   readonly isLast: boolean;
+  /** Sits under the thread above it in its section. */
+  readonly nested?: boolean;
+  /** How many threads are nested under this one, set only when some are. */
+  readonly nestedChildCount?: number;
+  readonly nestedCollapsed?: boolean;
 }
 
 export interface ThreadListV2Layout {
@@ -503,6 +514,9 @@ export function threadListV2ListItemsAreEqual(
         previous.item.snoozed === item.item.snoozed &&
         previous.item.pinned === item.item.pinned &&
         previous.item.wokeAt === item.item.wokeAt &&
+        previous.item.nested === item.item.nested &&
+        previous.item.nestedChildCount === item.item.nestedChildCount &&
+        previous.item.nestedCollapsed === item.item.nestedCollapsed &&
         previous.snoozeWakeLabelText === item.snoozeWakeLabelText &&
         previous.timeLabel === item.timeLabel &&
         previous.snoozePresetMinute === item.snoozePresetMinute &&
@@ -690,7 +704,7 @@ function sortSettledThreadsReusingLast(
     if (same) return lastSettledOutput;
   }
   lastSettledInput = settled;
-  lastSettledOutput = sortSettledThreads(settled);
+  lastSettledOutput = groupNestedThreads(sortSettledThreads(settled));
   return lastSettledOutput;
 }
 
@@ -715,6 +729,8 @@ export function buildThreadListV2Items(input: {
   readonly snoozedShelfExpanded?: boolean;
   readonly settledShelfExpanded?: boolean;
   readonly selectedThreadKey?: string | null;
+  /** Nest parents, by `nestedRowKey`, whose nested threads are hidden. */
+  readonly collapsedNestKeys?: ReadonlySet<string>;
   readonly queuedThreadKeys?: ReadonlySet<string>;
   /** Whether the shelf may list a settled row yet; older settled rows load in pages. */
   readonly isListedSettled?: (thread: EnvironmentThreadShell) => boolean;
@@ -844,13 +860,17 @@ export function buildThreadListV2Items(input: {
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
-  const orderedWorking = sortWorkingThreadsBySend(working);
-  const orderedSnoozed = [...snoozed].sort(
-    (left, right) =>
-      parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
+  const orderedActive = groupNestedThreads(
+    workingShelfEnabled
+      ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
+      : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending),
+  );
+  const orderedWorking = groupNestedThreads(sortWorkingThreadsBySend(working));
+  const orderedSnoozed = groupNestedThreads(
+    [...snoozed].sort(
+      (left, right) =>
+        parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
+    ),
   );
   const selectedThreadKey = input.selectedThreadKey ?? null;
   const visibleWorking =
@@ -890,12 +910,44 @@ export function buildThreadListV2Items(input: {
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
 
+  const orderedPinned = groupNestedThreads(
+    applyPendingThreadOrder(sortPinnedThreadsByOrderKey(pinned), "pinned", pending),
+  );
+  const collapsedNestKeys = input.collapsedNestKeys ?? new Set<string>();
+  const nestChildCounts = new Map<string, number>();
+  // A collapsed parent still shows the selected thread.
+  const collapseNests = (rows: readonly EnvironmentThreadShell[]) => {
+    const result = collapseNestedGroups(
+      rows,
+      collapsedNestKeys,
+      (row) => `${row.environmentId}:${row.id}` === selectedThreadKey,
+    );
+    for (const [key, group] of result.groups) nestChildCounts.set(key, group.childCount);
+    return result.rows;
+  };
+  const shownPinned = collapseNests(orderedPinned);
+  const shownActive = collapseNests(orderedActive);
+  const shownWorking = collapseNests(visibleWorking);
+  const shownSnoozed = collapseNests(visibleSnoozed);
+  const shownSettled = collapseNests(visibleSettled);
+  // Each section is its own run, so a row nests only under a parent in the same section.
+  const nestedKeys = new Set(
+    [shownPinned, shownActive, shownWorking, shownSnoozed, shownSettled].flatMap((section) => [
+      ...nestedRowKeys(section),
+    ]),
+  );
+  const nestFields = (thread: EnvironmentThreadShell) => {
+    const key = nestedRowKey(thread);
+    const childCount = nestChildCounts.get(key);
+    return {
+      nested: nestedKeys.has(key),
+      ...(childCount === undefined
+        ? {}
+        : { nestedChildCount: childCount, nestedCollapsed: collapsedNestKeys.has(key) }),
+    };
+  };
   const items: ThreadListV2Item[] = [];
-  for (const thread of applyPendingThreadOrder(
-    sortPinnedThreadsByOrderKey(pinned),
-    "pinned",
-    pending,
-  )) {
+  for (const thread of shownPinned) {
     items.push({
       thread,
       variant: "card",
@@ -903,9 +955,10 @@ export function buildThreadListV2Items(input: {
       pinned: true,
       wokeAt: resolveThreadListV2WokeAt(thread, { now }),
       isLast: false,
+      ...nestFields(thread),
     });
   }
-  for (const thread of orderedActive) {
+  for (const thread of shownActive) {
     items.push({
       thread,
       variant: "card",
@@ -913,10 +966,11 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: resolveThreadListV2WokeAt(thread, { now }),
       isLast: false,
+      ...nestFields(thread),
     });
   }
   const workingShelfHeaderIndex = orderedWorking.length > 0 ? items.length : null;
-  for (const thread of visibleWorking) {
+  for (const thread of shownWorking) {
     items.push({
       thread,
       variant: "card",
@@ -924,10 +978,11 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: resolveThreadListV2WokeAt(thread, { now }),
       isLast: false,
+      ...nestFields(thread),
     });
   }
   const snoozedShelfHeaderIndex = orderedSnoozed.length > 0 ? items.length : null;
-  for (const thread of visibleSnoozed) {
+  for (const thread of shownSnoozed) {
     items.push({
       thread,
       variant: "slim",
@@ -935,10 +990,11 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: null,
       isLast: false,
+      ...nestFields(thread),
     });
   }
   const settledShelfHeaderIndex = settledTotal > 0 ? items.length : null;
-  for (const thread of visibleSettled) {
+  for (const thread of shownSettled) {
     items.push({
       thread,
       variant: "slim",
@@ -946,6 +1002,7 @@ export function buildThreadListV2Items(input: {
       pinned: false,
       wokeAt: null,
       isLast: false,
+      ...nestFields(thread),
     });
   }
   const last = items.at(-1);

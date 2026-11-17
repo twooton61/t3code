@@ -36,6 +36,8 @@ import {
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
+  nestThread,
+  setThreadNotifications,
   promoteQueuedRun,
   resumeThreadQueue,
   retryWorkspacePreparation,
@@ -243,6 +245,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     setAutoSettle: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-auto-settle",
       execute: setThreadAutoSettle,
+      scheduler,
+      concurrency,
+    }),
+    nest: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:nest",
+      execute: nestThread,
+      scheduler,
+      concurrency,
+    }),
+    setNotifications: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-notifications",
+      execute: setThreadNotifications,
       scheduler,
       concurrency,
     }),
@@ -537,6 +551,14 @@ export function createThreadEnvironmentAtoms<R, E>(
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,
       autoSettleDisabledAt: input.enabled ? null : (thread.autoSettleDisabledAt ?? now),
+    })),
+    nest: optimistic.wrap(commands.nest, (thread, input) => ({
+      ...thread,
+      nestedUnderThreadId: input.parentThreadId,
+    })),
+    setNotifications: optimistic.wrap(commands.setNotifications, (thread, input) => ({
+      ...thread,
+      notifications: input.notifications,
     })),
     pin: optimistic.wrap(commands.pin, (thread, input, now) => ({
       ...thread,

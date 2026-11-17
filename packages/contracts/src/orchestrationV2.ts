@@ -466,6 +466,14 @@ const OrchestrationV2LastTitleRegeneration = Schema.Struct({
   completedAt: Schema.DateTimeUtc,
 });
 
+export const ThreadNotifications = Schema.Literals(["on", "off"]);
+export type ThreadNotifications = typeof ThreadNotifications.Type;
+
+/** Lenient so a level from a newer peer reads as "on" instead of failing the thread. */
+const StoredThreadNotifications = ThreadNotifications.pipe(
+  Schema.catchDecoding(() => Effect.succeedSome("on" as const)),
+);
+
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -519,6 +527,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
+  /** Display-only sidebar grouping; no server behavior reads it, unlike `lineage`. */
+  nestedUnderThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  /** Absent reads as "on". "off" silences every alert from this thread on every device. */
+  notifications: Schema.optional(StoredThreadNotifications),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -2005,6 +2017,8 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.pin-reordered",
       "thread.active-reordered",
       "thread.tags-updated",
+      "thread.nesting-updated",
+      "thread.notifications-updated",
       "thread.visited",
       "thread.marked-unread",
       "thread.metadata-updated",
@@ -2271,6 +2285,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Absent on threads written before tags existed; read as empty. */
   tags: Schema.optional(StoredThreadTags),
+  /** Display-only sidebar grouping; no server behavior reads it, unlike `lineage`. */
+  nestedUnderThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  /** Absent reads as "on". "off" silences every alert from this thread on every device. */
+  notifications: Schema.optional(StoredThreadNotifications),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),
   titleRegeneration: Schema.optional(
@@ -2952,6 +2970,8 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.pin-reordered",
       "thread.active-reordered",
       "thread.tags-updated",
+      "thread.nesting-updated",
+      "thread.notifications-updated",
       "thread.visited",
       "thread.marked-unread",
       "thread.pull-request-synced",
@@ -3111,6 +3131,7 @@ export const OrchestrationV2Command = Schema.Union([
     linkOrigin: Schema.optional(OrchestrationV2LinkOrigin),
     /** Only the server sets this, with `linkOrigin`, for a linked environment's delegated task. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
+    nestedUnderThreadId: Schema.optional(ThreadId),
     importedNativeThread: Schema.optional(
       Schema.Struct({
         ref: Schema.Struct({
@@ -3224,6 +3245,19 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     tag: ThreadTag,
     tagged: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.nest.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    /** null moves the thread back to the top level. */
+    parentThreadId: Schema.NullOr(ThreadId),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.notifications.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    notifications: ThreadNotifications,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin.reorder"),

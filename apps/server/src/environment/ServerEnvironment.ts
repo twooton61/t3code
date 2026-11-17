@@ -260,6 +260,8 @@ export const make = Effect.gen(function* () {
       threadPinReorder: true,
       threadActiveReorder: true,
       threadAutoSettleOptOut: true,
+      threadNesting: true,
+      threadNotificationsToggle: true,
       threadProjectFromScratch: true,
       threadTitleRegeneration: true,
       commandOutputStreaming: true,

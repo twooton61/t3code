@@ -23,9 +23,11 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { type EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import {
+  type EnvironmentThreadShell,
   formatWorkingDurationLabel,
   resolveThreadProviderStack,
 } from "@t3tools/client-runtime/state/models";
+import type { NestedGroup } from "@t3tools/client-runtime/state/thread-nesting";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { toServerClock } from "@t3tools/client-runtime/clock";
 import {
@@ -41,7 +43,9 @@ import {
   AlarmClockIcon,
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
+  BellOffIcon,
   CheckIcon,
+  ChevronDownIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -83,6 +87,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
+import { HiddenThreadsDot } from "./SidebarProjectFolderHeader";
 import {
   animateSidebarLayoutChanges,
   hasUnseenCompletion,
@@ -444,6 +449,10 @@ type SortableThreadRowBag = Pick<
   "listeners" | "setNodeRef" | "transform" | "transition" | "isDragging"
 >;
 
+// Padding, not margin: content-visibility clips paint to the row, and the guide line sits in it.
+const nestedRowClassName =
+  "relative ps-4 before:pointer-events-none before:absolute before:inset-y-0 before:start-1.5 before:w-px before:bg-sidebar-border";
+
 export const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
 export const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 
@@ -549,11 +558,54 @@ function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: 
   return <Icon aria-hidden className={cn("shrink-0", props.className)} />;
 }
 
+function NestedGroupToggle(props: {
+  group: NestedGroup<EnvironmentThreadShell>;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const noun = props.group.childCount === 1 ? "thread" : "threads";
+  const label = `${props.collapsed ? "Show" : "Hide"} ${props.group.childCount} nested ${noun}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-expanded={!props.collapsed}
+            aria-label={label}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onToggle();
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            className="inline-flex h-5 shrink-0 cursor-pointer items-center gap-1 rounded-sm px-1 text-xs tabular-nums text-sidebar-muted-foreground outline-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          />
+        }
+      >
+        {props.collapsed ? <HiddenThreadsDot threads={props.group.hidden} /> : null}
+        {props.group.childCount}
+        <ChevronDownIcon
+          aria-hidden
+          className={cn("size-3 transition-transform", props.collapsed && "-rotate-90")}
+        />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's branch and PR line under it.
   variant: "card" | "slim" | "folder" | "folder-multiline";
+  /** Sits under the thread above it, which the user or an agent nested it under. */
+  nested?: boolean;
+  /** Set when threads are nested under this one. */
+  nestedGroup?: NestedGroup<EnvironmentThreadShell> | undefined;
+  nestedGroupCollapsed?: boolean;
+  onToggleNestedGroup?: (thread: SidebarThreadSummary) => void;
   navigationParent?: string | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
@@ -1165,6 +1217,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     )
   ) : null;
 
+  const { nestedGroup, onToggleNestedGroup } = props;
+  const nestedGroupToggle =
+    nestedGroup !== undefined && onToggleNestedGroup !== undefined ? (
+      <NestedGroupToggle
+        group={nestedGroup}
+        collapsed={props.nestedGroupCollapsed === true}
+        onToggle={() => onToggleNestedGroup(thread)}
+      />
+    ) : null;
+
+  const notificationsOffIndicator =
+    thread.notifications === "off" ? (
+      <BellOffIcon
+        aria-label="Notifications off"
+        role="img"
+        className="size-3 shrink-0 text-muted-foreground/65"
+      />
+    ) : null;
+
   const remoteMachineIcon =
     isRemote && !showsScratchMachine ? (
       <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
@@ -1241,6 +1312,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(9)]",
           metaLine !== null && multiline && "[contain-intrinsic-size:auto_--spacing(13.5)]",
+          props.nested && nestedRowClassName,
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -1289,8 +1361,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {draftIndicator}
               {title}
+              {nestedGroupToggle}
               {multiline ? titleLineIcons : null}
               {pinIndicator}
+              {notificationsOffIndicator}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
@@ -1438,6 +1512,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         metaLineEmpty && "[contain-intrinsic-size:auto_60px]",
+        props.nested && nestedRowClassName,
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -1476,6 +1551,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
               {pinIndicator}
+              {notificationsOffIndicator}
               {props.projectDisplayName ? (
                 <span
                   className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
@@ -1485,6 +1561,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ) : (
                 <span className="flex-1" />
               )}
+              {nestedGroupToggle}
               {sortable?.isDragging ? (
                 dragDestination
               ) : (

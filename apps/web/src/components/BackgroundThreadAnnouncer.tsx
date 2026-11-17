@@ -53,7 +53,7 @@ export function startBackgroundThreadAnnouncements(
         runId: thread.latestRun?.runId ?? null,
         runStatus: thread.latestRun?.status ?? null,
         activeRunId: thread.runtime?.activeRunId ?? null,
-        snoozed: effectiveSnoozed(thread, { now }),
+        quiet: effectiveSnoozed(thread, { now }) || thread.notifications === "off",
       });
     }
     const next = nextBackgroundThreadAnnouncement(memory, snapshots, openThreadKey);

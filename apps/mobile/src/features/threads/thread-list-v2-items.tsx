@@ -71,6 +71,7 @@ import { useThreadPr } from "../../state/use-thread-pr";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
+import { setThreadNotifications, supportsThreadNotificationsToggle } from "./threadNotifications";
 import { canTurnThreadIntoProject, turnThreadIntoProject } from "./turnThreadIntoProject";
 import { threadCanArchive } from "../home/threadArchive";
 import {
@@ -650,9 +651,57 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   );
 });
 
+const NESTED_ROW_STYLE = { marginLeft: 16 } as const;
+
+function NestedGroupToggle(props: {
+  readonly childCount: number;
+  readonly collapsed: boolean;
+  readonly selected: boolean;
+  readonly mutedTextClassName: string;
+  readonly mutedIconTintClassName: string;
+  readonly onToggle: () => void;
+}) {
+  const noun = props.childCount === 1 ? "thread" : "threads";
+  return (
+    <Pressable
+      className="-m-2.5 flex-row items-center gap-0.5 p-2.5"
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !props.collapsed }}
+      accessibilityLabel={`${props.collapsed ? "Show" : "Hide"} ${props.childCount} nested ${noun}`}
+      onPress={props.onToggle}
+      onLongPress={() => undefined}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+    >
+      <Text
+        className={cn(
+          "text-xs tabular-nums",
+          props.selected ? selectedThreadRowColors.foregroundClassName : props.mutedTextClassName,
+        )}
+      >
+        {props.childCount}
+      </Text>
+      <SymbolView
+        name={props.collapsed ? "chevron.right" : "chevron.down"}
+        size={10}
+        tintColorClassName={
+          props.selected ? selectedThreadRowColors.iconTintClassName : props.mutedIconTintClassName
+        }
+        type="monochrome"
+        weight="semibold"
+      />
+    </Pressable>
+  );
+}
+
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly thread: EnvironmentThreadShell;
   readonly variant: "card" | "slim";
+  /** Sits under the thread above it, which the user or an agent nested it under. */
+  readonly nested?: boolean;
+  /** How many threads are nested under this one, set only when some are. */
+  readonly nestedChildCount?: number;
+  readonly nestedCollapsed?: boolean;
+  readonly onToggleNestedGroup?: (thread: EnvironmentThreadShell) => void;
   readonly hasQueuedMessages?: boolean;
   readonly snoozed?: boolean;
   readonly pinned?: boolean;
@@ -798,6 +847,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     hasQueuedMessages: props.hasQueuedMessages === true,
     regeneratingTitle: isRegeneratingTitle,
   });
+  const { onToggleNestedGroup } = props;
+  const nestedGroupToggle =
+    props.nestedChildCount !== undefined && onToggleNestedGroup !== undefined ? (
+      <NestedGroupToggle
+        childCount={props.nestedChildCount}
+        collapsed={props.nestedCollapsed === true}
+        selected={selected}
+        mutedTextClassName={rowAppearance.tertiaryForegroundClassName}
+        mutedIconTintClassName={rowAppearance.mutedIconTintClassName}
+        onToggle={() => onToggleNestedGroup(thread)}
+      />
+    ) : null;
 
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const markThreadUnread = useAtomCommand(threadEnvironment.markUnread, { reportFailure: false });
@@ -914,9 +975,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         : [],
     [props.pinningSupported, thread.pinnedAt],
   );
-  const autoSettleMenuItems = useMemo<MenuAction[]>(
-    () =>
-      props.autoSettleOptOutSupported
+  const notificationsToggleSupported = supportsThreadNotificationsToggle(thread);
+  const notificationsOn = thread.notifications !== "off";
+  const behaviorMenuItems = useMemo<MenuAction[]>(
+    () => [
+      ...(props.autoSettleOptOutSupported
         ? [
             {
               id: "auto-settle",
@@ -936,8 +999,27 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               ],
             } satisfies MenuAction,
           ]
-        : [],
-    [props.autoSettleOptOutSupported, thread.autoSettleDisabledAt],
+        : []),
+      ...(notificationsToggleSupported
+        ? [
+            {
+              id: "notifications",
+              title: "Notifications",
+              image: "bell",
+              subactions: [
+                { id: "notifications:on", title: "On", state: notificationsOn ? "on" : "off" },
+                { id: "notifications:off", title: "Off", state: notificationsOn ? "off" : "on" },
+              ],
+            } satisfies MenuAction,
+          ]
+        : []),
+    ],
+    [
+      props.autoSettleOptOutSupported,
+      thread.autoSettleDisabledAt,
+      notificationsToggleSupported,
+      notificationsOn,
+    ],
   );
   const canTurnIntoProject = canTurnThreadIntoProject(thread);
   const titleMenuItems = useMemo<MenuAction[]>(
@@ -984,7 +1066,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         pin: [],
         secondary: [
           ...titleMenuItems,
-          ...autoSettleMenuItems,
+          ...behaviorMenuItems,
           LEGACY_MENU_ACTIONS[0]!,
           SNOOZED_MENU_ACTIONS[1]!,
         ],
@@ -1009,7 +1091,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         pin: pinMenuItems,
         secondary: [
           ...titleMenuItems,
-          ...autoSettleMenuItems,
+          ...behaviorMenuItems,
           LEGACY_MENU_ACTIONS[0]!,
           SLIM_MENU_ACTIONS[1]!,
         ],
@@ -1028,13 +1110,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       pin: pinMenuItems,
       secondary: [
         ...titleMenuItems,
-        ...autoSettleMenuItems,
+        ...behaviorMenuItems,
         LEGACY_MENU_ACTIONS[0]!,
         CARD_MENU_ACTIONS[1]!,
       ],
     });
   }, [
-    autoSettleMenuItems,
+    behaviorMenuItems,
     canUnsettle,
     pinMenuItems,
     props.settlementSupported,
@@ -1055,6 +1137,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "unpin") handleUnpin();
       if (nativeEvent.event === "auto-settle:enabled") handleSetAutoSettle(true);
       if (nativeEvent.event === "auto-settle:disabled") handleSetAutoSettle(false);
+      if (nativeEvent.event === "notifications:on") void setThreadNotifications(thread, "on");
+      if (nativeEvent.event === "notifications:off") void setThreadNotifications(thread, "off");
       if (nativeEvent.event === "arrange") appAtomRegistry.set(threadArrangementOpenAtom, true);
       if (nativeEvent.event === "move-up") handleMoveUp();
       if (nativeEvent.event === "move-down") handleMoveDown();
@@ -1223,6 +1307,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           {thread.title}
         </Text>
         <View className="flex-row items-center gap-1.5" style={{ minHeight: titleLineHeight }}>
+          {nestedGroupToggle}
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
           {pinnedRow ? (
             <SymbolView
@@ -1232,6 +1317,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               type="monochrome"
             />
           ) : null}
+          {notificationsOn ? null : (
+            <SymbolView
+              name="bell.slash"
+              size={11}
+              tintColorClassName={rowAppearance.mutedIconTintClassName}
+              type="monochrome"
+              accessibilityLabel="Notifications off"
+            />
+          )}
           {showsWoke ? (
             <Pressable
               className="-m-2.5 flex-row items-center gap-1 p-2.5"
@@ -1555,6 +1649,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               />
             ) : null}
           </View>
+          {nestedGroupToggle}
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
           <Text
             className={cn(
@@ -1575,11 +1670,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </RowPressable>
     );
 
+  const nestedStyle = props.nested ? NESTED_ROW_STYLE : undefined;
   if (!canOperateThread)
-    return <View style={rowAppearance.swipeContainerStyle}>{rowContent(() => {})}</View>;
+    return (
+      <View style={[rowAppearance.swipeContainerStyle, nestedStyle]}>{rowContent(() => {})}</View>
+    );
 
   return (
-    <View collapsable={false}>
+    <View collapsable={false} style={nestedStyle}>
       {customSnoozeOpen && (
         <CustomSnoozeSheet onClose={() => setCustomSnoozeOpen(false)} onSnooze={handleSnooze} />
       )}

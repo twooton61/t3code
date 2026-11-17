@@ -8,11 +8,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
-import {
-  AuthOrchestrationOperateScope,
-  type ScopedThreadRef,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { nestingParentCandidates } from "@t3tools/client-runtime/state/thread-nesting";
+import { AuthOrchestrationOperateScope, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
@@ -31,7 +28,10 @@ import { readEnvironmentScope } from "../state/session";
 import {
   readEnvironmentServerConfigLoaded,
   readEnvironmentSupportsAutoSettleOptOut,
+  readEnvironmentSupportsThreadNesting,
+  readEnvironmentSupportsThreadNotificationsToggle,
   readThreadShell,
+  readThreadShells,
   useProjects,
 } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -87,6 +87,8 @@ export function useThreadActionMenu(input: {
     archiveThread,
     deleteThread,
     markThreadUnread,
+    nestThread,
+    setThreadNotifications,
     turnThreadIntoProject,
   } = useThreadActions();
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
@@ -122,6 +124,9 @@ export function useThreadActionMenu(input: {
       const supports = {
         settlement: configLoaded,
         autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
+        notificationsToggle: readEnvironmentSupportsThreadNotificationsToggle(
+          threadRef.environmentId,
+        ),
         snooze: configLoaded,
         pinning: configLoaded,
         titleRegeneration: configLoaded,
@@ -136,6 +141,7 @@ export function useThreadActionMenu(input: {
         isPinned: thread.pinnedAt != null,
         isSettled: supports.settlement && thread.settledOverride === "settled",
         autoSettleEnabled: thread.autoSettleDisabledAt == null,
+        notificationsOn: thread.notifications !== "off",
         isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
         canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
         isRegeneratingTitle,
@@ -144,6 +150,14 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        ...(readEnvironmentSupportsThreadNesting(threadRef.environmentId)
+          ? {
+              nesting: {
+                parents: nestingParentCandidates(thread, readThreadShells()),
+                isNested: thread.nestedUnderThreadId != null,
+              },
+            }
+          : {}),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -172,6 +186,16 @@ export function useThreadActionMenu(input: {
         const result = await snoozeThread(threadRef, preset.snoozedUntil);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           failureToast("Failed to snooze thread", squashAtomCommandFailure(result));
+        }
+        return;
+      }
+      if (action.startsWith("nest:") || action === "unnest") {
+        const result = await nestThread(
+          threadRef,
+          action === "unnest" ? null : ThreadId.make(action.slice("nest:".length)),
+        );
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          failureToast("Failed to move thread", squashAtomCommandFailure(result));
         }
         return;
       }
@@ -237,6 +261,12 @@ export function useThreadActionMenu(input: {
         case "auto-settle:disabled":
           await reportFailure("Failed to update auto-settle", () =>
             setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
+          );
+          return;
+        case "notifications:on":
+        case "notifications:off":
+          await reportFailure("Failed to update notifications", () =>
+            setThreadNotifications(threadRef, action === "notifications:on" ? "on" : "off"),
           );
           return;
         case "rename":

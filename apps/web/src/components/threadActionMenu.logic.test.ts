@@ -9,6 +9,7 @@ const baseState: ThreadActionMenuState = {
   isPinned: false,
   isSettled: false,
   autoSettleEnabled: true,
+  notificationsOn: true,
   isSnoozed: false,
   canSnoozeNow: true,
   isRegeneratingTitle: false,
@@ -16,6 +17,7 @@ const baseState: ThreadActionMenuState = {
   supports: {
     settlement: true,
     autoSettleOptOut: true,
+    notificationsToggle: true,
     snooze: true,
     pinning: true,
     titleRegeneration: true,
@@ -44,6 +46,7 @@ describe("buildThreadActionMenuItems", () => {
             "rename",
             "regenerate-title",
             "auto-settle",
+            "notifications",
             "archive",
             "delete",
           ]
@@ -54,6 +57,7 @@ describe("buildThreadActionMenuItems", () => {
             "rename",
             "regenerate-title",
             "auto-settle",
+            "notifications",
             "archive",
             "delete",
           ];

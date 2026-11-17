@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
+  ProjectId,
   type OrchestrationV2ThreadShell,
   ProviderInstanceId,
   ThreadId,
@@ -11,7 +12,7 @@ import * as Layer from "effect/Layer";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { liveThreadShell } from "./McpToolAccess.testkit.ts";
-import { assertTargetWithinLimits, readThread } from "./threadAccess.ts";
+import { assertTargetWithinLimits, nestingParentOf, readThread } from "./threadAccess.ts";
 
 const bareId = ThreadId.make("5d0b4a3e-8c1f-4a52-9d37-2f6c7e1b9a04");
 const claudeCode: McpInvocationContext.McpClientCaller = {
@@ -138,3 +139,35 @@ it.effect("identifies the target and effective caller ceiling when a thread writ
     }
   }),
 );
+
+it.each([
+  {
+    name: "a listed caller nests under itself",
+    relationship: null,
+    project: "p",
+    expected: "caller",
+  },
+  {
+    name: "a subagent nests under its root",
+    relationship: "subagent",
+    project: "p",
+    expected: "root",
+  },
+  {
+    name: "another project stays top level",
+    relationship: null,
+    project: "q",
+    expected: undefined,
+  },
+] as const)("nestingParentOf: $name", ({ relationship, project, expected }) => {
+  const caller = {
+    id: ThreadId.make("caller"),
+    projectId: ProjectId.make("p"),
+    lineage: {
+      parentThreadId: relationship === null ? null : ThreadId.make("root"),
+      relationshipToParent: relationship,
+      rootThreadId: ThreadId.make(relationship === null ? "caller" : "root"),
+    },
+  };
+  expect(nestingParentOf(caller, ProjectId.make(project))).toBe(expected);
+});

@@ -106,6 +106,7 @@ function shouldPublishAgentAwarenessEvent(
     case "runtime-request.updated":
     case "subagent.updated":
     case "provider-thread.updated":
+    case "thread.notifications-updated":
       return true;
     // Unsettling must not re-alert a dismissed result.
     case "thread.unsettled":
@@ -118,6 +119,7 @@ function shouldPublishAgentAwarenessEvent(
     case "thread.pin-reordered":
     case "thread.active-reordered":
     case "thread.tags-updated":
+    case "thread.nesting-updated":
     case "thread.visited":
     case "thread.visit-recorded":
     case "thread.marked-unread":
@@ -587,8 +589,9 @@ export const make = Effect.gen(function* () {
       // Subagents and side chats have no relay rows to clear; per-event tombstones would needlessly redeliver user aggregates.
       return;
     }
+    // A thread with notifications off publishes like an archived one: no card and no alert.
     const thread =
-      threadShell === null || threadShell.archivedAt !== null
+      threadShell === null || threadShell.archivedAt !== null || threadShell.notifications === "off"
         ? Option.none<AgentAwarenessThread>()
         : Option.some(threadShell);
     const project = Option.isSome(thread)

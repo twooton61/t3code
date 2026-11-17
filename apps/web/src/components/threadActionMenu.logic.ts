@@ -14,6 +14,12 @@ export type ThreadActionMenuId =
   | "auto-settle"
   | "auto-settle:enabled"
   | "auto-settle:disabled"
+  | "notifications"
+  | "notifications:on"
+  | "notifications:off"
+  | "nest"
+  | `nest:${string}`
+  | "unnest"
   | "snooze"
   | `snooze:${string}`
   | "unsnooze"
@@ -78,6 +84,7 @@ export interface ThreadActionMenuState {
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
+  readonly notificationsOn: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
@@ -86,6 +93,7 @@ export interface ThreadActionMenuState {
   readonly supports: {
     readonly settlement: boolean;
     readonly autoSettleOptOut: boolean;
+    readonly notificationsToggle: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
     readonly titleRegeneration: boolean;
@@ -95,6 +103,11 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Sidebar grouping: threads this one can nest under, and whether it is nested now. */
+  readonly nesting?: {
+    readonly parents: ReadonlyArray<{ readonly id: string; readonly title: string }>;
+    readonly isNested: boolean;
+  };
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -223,6 +236,35 @@ export function buildThreadActionMenuItems(
             ],
           },
         ]
+      : []),
+    ...(state.supports.notificationsToggle
+      ? [
+          {
+            id: "notifications" as const,
+            label: "Notifications",
+            icon: "bell",
+            children: [
+              { id: "notifications:on" as const, label: "On", checked: state.notificationsOn },
+              { id: "notifications:off" as const, label: "Off", checked: !state.notificationsOn },
+            ],
+          },
+        ]
+      : []),
+    ...(state.nesting && state.nesting.parents.length > 0
+      ? [
+          {
+            id: "nest" as const,
+            label: "Nest under",
+            icon: "corner-down-right",
+            children: state.nesting.parents.map((parent) => ({
+              id: `nest:${parent.id}` as const,
+              label: parent.title,
+            })),
+          },
+        ]
+      : []),
+    ...(state.nesting?.isNested
+      ? [{ id: "unnest" as const, label: "Move to top level", icon: "corner-left-up" }]
       : []),
     {
       id: "copy",

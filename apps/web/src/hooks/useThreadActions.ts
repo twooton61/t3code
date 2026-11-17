@@ -14,6 +14,7 @@ import {
   EnvironmentId,
   type ScopedThreadRef,
   ThreadId,
+  type ThreadNotifications,
   sessionGrantsScope,
 } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
@@ -300,6 +301,13 @@ export function useThreadActions() {
   const setThreadAutoSettleMutation = useOrchestrationCommand(threadEnvironment.setAutoSettle, {
     reportFailure: false,
   });
+  const nestThreadMutation = useOrchestrationCommand(threadEnvironment.nest, {
+    reportFailure: false,
+  });
+  const setThreadNotificationsMutation = useOrchestrationCommand(
+    threadEnvironment.setNotifications,
+    { reportFailure: false },
+  );
   const reorderPinnedThreadMutation = useOrchestrationCommand(threadEnvironment.reorderPin, {
     reportFailure: false,
   });
@@ -1029,6 +1037,16 @@ export function useThreadActions() {
     reorderActiveThread,
     markThreadUnread,
     setThreadAutoSettle,
+    nestThread: (target: ScopedThreadRef, parentThreadId: ThreadId | null) =>
+      nestThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, parentThreadId },
+      }),
+    setThreadNotifications: (target: ScopedThreadRef, notifications: ThreadNotifications) =>
+      setThreadNotificationsMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, notifications },
+      }),
     turnThreadIntoProject: (target: ScopedThreadRef) =>
       createProjectFromThread({
         environmentId: target.environmentId,

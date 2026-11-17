@@ -1602,6 +1602,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       thread: {
         id: parentThreadId,
         projectId,
+        lineage: { rootThreadId: parentThreadId, parentThreadId: null, relationshipToParent: null },
         title: "MCP parent",
         createdBy: "user",
         creationSource: "web",
@@ -3012,6 +3013,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           assert.equal(started.threads[0]?.threadId, child.threadId);
           const before = yield* orchestrator.getThreadProjection(child.threadId);
           assert.deepEqual(before.runs[0]?.modelSelection, selection);
+          assert.equal(before.thread.nestedUnderThreadId, parentThreadId);
           assert.equal(before.messages.length, 1);
           const empty = yield* service.createThreads(scope, {
             ...request,

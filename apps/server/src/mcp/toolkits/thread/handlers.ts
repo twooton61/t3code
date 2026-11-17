@@ -394,6 +394,14 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
           command = { ...common, type: "thread.pin", ...(orderKey ? { orderKey } : {}) };
           break;
         }
+        case "notifications_off":
+        case "notifications_on":
+          command = {
+            ...common,
+            type: "thread.notifications.set",
+            notifications: input.action === "notifications_off" ? "off" : "on",
+          };
+          break;
         default:
           command = { ...common, type: `thread.${input.action}` };
       }

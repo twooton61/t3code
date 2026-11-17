@@ -304,7 +304,7 @@ export function startThreadNotifications(
     const now = Date.now();
     for (const [prior, state] of changed) {
       entry.gate.observe(state.thread.id, prior, state, {
-        archived: state.thread.archivedAt !== null,
+        silenced: state.thread.archivedAt !== null || state.raw.notifications === "off",
         quiet: state.raw.latestRunStopRequested === true,
         snoozed: isSnoozedForNotification(state.thread, state.completedAt, now),
       });

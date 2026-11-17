@@ -727,6 +727,47 @@ describe("AgentAwarenessRelay", () => {
       }),
   );
 
+  it.effect("clears a thread's card while its notifications are off and restores it after", () =>
+    Effect.gen(function* () {
+      const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
+      const pulls = yield* Queue.unbounded<void>();
+      const { relay, currentShell, publications } = yield* makeTestRelay({
+        domainEvents: Stream.fromEffectRepeat(
+          Queue.offer(pulls, undefined).pipe(Effect.andThen(Queue.take(events))),
+        ),
+      });
+      yield* relay.start();
+      yield* Queue.take(pulls);
+      yield* relay.publishThread(THREAD_ID);
+      assert.isNotNull(publications[0]?.state);
+
+      const toggle = (notifications: "on" | "off") =>
+        Effect.gen(function* () {
+          const next = shell(notifications === "off" ? { notifications } : {});
+          yield* Ref.set(currentShell, next);
+          yield* Queue.offer(events, {
+            id: EventId.make(`event:notifications-${notifications}`),
+            type: "thread.notifications-updated",
+            threadId: THREAD_ID,
+            occurredAt: yield* DateTime.now,
+            payload: { ...next, lastVisitedAt: null },
+          });
+          yield* Queue.take(pulls);
+          yield* relay.drain;
+        });
+
+      yield* toggle("off");
+      yield* TestClock.adjust("5 seconds");
+      yield* relay.drain;
+      assert.equal(publications.length, 2);
+      assert.equal(publications[1]?.state, null);
+
+      yield* toggle("on");
+      assert.equal(publications.length, 3);
+      assert.equal(publications[2]?.state?.phase, publications[0]?.state?.phase);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("holds a completion through a continuation gap, then publishes it once", () =>
     Effect.gen(function* () {
       const { relay, currentShell, publications } = yield* makeTestRelay();

@@ -5,6 +5,8 @@ import type {
 import {
   CommandId,
   type EnvironmentId,
+  isListedThreadLineage,
+  type OrchestrationV2AppThreadLineage,
   OrchestratorMcpFailure,
   type ProjectId,
   type ProviderInstanceId,
@@ -119,6 +121,24 @@ export const dispatchFailure = (
           message: Array.from(error.cause).slice(0, 1000).join(""),
         })
       : unavailable();
+
+/**
+ * The sidebar row a thread an agent starts should nest under: the caller's own row, or for
+ * a subagent or side chat (which have no row) its root. Another project's thread stays top level.
+ */
+export const nestingParentOf = (
+  thread: {
+    readonly id: ThreadId;
+    readonly projectId: ProjectId;
+    readonly lineage: OrchestrationV2AppThreadLineage;
+  },
+  projectId: ProjectId,
+): ThreadId | undefined =>
+  thread.projectId !== projectId
+    ? undefined
+    : isListedThreadLineage(thread.lineage)
+      ? thread.id
+      : thread.lineage.rootThreadId;
 
 export interface CallerLimits {
   readonly runtimeMode: RuntimeMode;

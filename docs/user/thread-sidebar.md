@@ -160,6 +160,27 @@ Pinned threads stay above the folders, and Snoozed and Settled stay below them. 
 can drag a thread onto the composer to mention it, but not within the sidebar, and the Working
 section is off. Each device keeps its own choice.
 
+### Nest threads under a parent
+
+To keep related threads together, such as a coordinator and the worker threads it starts,
+right-click a thread on web or desktop, choose **Nest under**, and pick another thread in the same
+project. The thread then shows indented below that parent, and the group moves up the list
+when any of its threads has new activity. Choose **Move to top level** to undo it. Threads an
+agent starts with T3 Code's thread tools nest under that agent's thread automatically. Mobile
+shows the same grouping. Nesting changes only the sidebar: each thread still runs on its own.
+
+A parent shows how many threads sit under it. Click or tap that count to hide or show them. While
+they are hidden, a colored dot on the count tells you when one of them is working, failed, or
+needs you on web and desktop, and the thread you have open stays visible. Each device remembers
+which parents you collapsed.
+
+### Turn off a thread's notifications
+
+To stop one thread from alerting you, open its menu, choose **Notifications**, and pick **Off**.
+The thread then sends no desktop alerts, in-app toasts, or phone notifications on any device, even
+when it needs input or approval, and its row shows a crossed-out bell. Pick **On** to restore
+them. The thread still runs and still moves in the sidebar as usual.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

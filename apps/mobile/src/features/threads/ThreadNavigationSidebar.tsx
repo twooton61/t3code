@@ -248,6 +248,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
+    collapsedNestKeys,
+    toggleNestGroup,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(threads);
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
@@ -290,6 +292,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     workingShelfExpanded,
     snoozedShelfExpanded,
     settledShelfExpanded,
+    collapsedNestKeys,
     selectedThreadKey,
   });
   const listItems: readonly SidebarListItem[] =
@@ -415,6 +418,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             onNewThreadOnBranch={props.onNewThreadOnBranch}
             thread={thread}
             variant={item.item.variant}
+            nested={item.item.nested}
+            nestedChildCount={item.item.nestedChildCount}
+            nestedCollapsed={item.item.nestedCollapsed}
+            onToggleNestedGroup={toggleNestGroup}
             hasQueuedMessages={item.hasQueuedMessages}
             snoozed={item.item.snoozed}
             pinned={item.item.pinned}

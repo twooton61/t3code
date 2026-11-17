@@ -24,6 +24,7 @@ import {
   type RuntimeMode,
   type RuntimeRequestId,
   type ThreadId,
+  type ThreadNotifications,
   type ThreadEnvMode,
   type UploadChatAttachment,
   type GuestMessageId,
@@ -592,6 +593,34 @@ export const setThreadAutoSettle = Effect.fn("EnvironmentCommands.setThreadAutoS
     enabled: input.enabled,
   });
 });
+
+export interface NestThreadInput extends ThreadCommandInput {
+  readonly parentThreadId: ThreadId | null;
+}
+export const nestThread = Effect.fn("EnvironmentCommands.nestThread")(function* (
+  input: NestThreadInput,
+) {
+  return yield* dispatch({
+    type: "thread.nest.set",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    parentThreadId: input.parentThreadId,
+  });
+});
+
+export interface SetThreadNotificationsInput extends ThreadCommandInput {
+  readonly notifications: ThreadNotifications;
+}
+export const setThreadNotifications = Effect.fn("EnvironmentCommands.setThreadNotifications")(
+  function* (input: SetThreadNotificationsInput) {
+    return yield* dispatch({
+      type: "thread.notifications.set",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      notifications: input.notifications,
+    });
+  },
+);
 
 export const reorderPinnedThread = Effect.fn("EnvironmentCommands.reorderPinnedThread")(function* (
   input: ReorderPinnedThreadInput,

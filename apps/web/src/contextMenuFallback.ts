@@ -8,6 +8,15 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "path", attrs: { d: "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" } },
     { tag: "path", attrs: { d: "M10 12h4" } },
   ],
+  bell: [
+    { tag: "path", attrs: { d: "M10.268 21a2 2 0 0 0 3.464 0" } },
+    {
+      tag: "path",
+      attrs: {
+        d: "M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326",
+      },
+    },
+  ],
   check: [{ tag: "path", attrs: { d: "M20 6 9 17l-5-5" } }],
   timer: [
     { tag: "line", attrs: { x1: "10", x2: "14", y1: "2", y2: "2" } },
@@ -15,6 +24,14 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "circle", attrs: { cx: "12", cy: "14", r: "8" } },
   ],
   "chevron-right": [{ tag: "path", attrs: { d: "m9 19 7-7-7-7" } }],
+  "corner-down-right": [
+    { tag: "path", attrs: { d: "m15 10 5 5-5 5" } },
+    { tag: "path", attrs: { d: "M4 4v7a4 4 0 0 0 4 4h12" } },
+  ],
+  "corner-left-up": [
+    { tag: "path", attrs: { d: "M14 9 9 4 4 9" } },
+    { tag: "path", attrs: { d: "M20 20h-7a4 4 0 0 1-4-4V4" } },
+  ],
   "circle-check": [
     { tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
     { tag: "path", attrs: { d: "m9 12 2 2 4-4" } },

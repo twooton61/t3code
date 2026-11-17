@@ -375,6 +375,22 @@ export function readEnvironmentSupportsAutoSettleOptOut(environmentId: Environme
   );
 }
 
+export function readEnvironmentSupportsThreadNesting(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadNesting === true
+  );
+}
+
+export function readEnvironmentSupportsThreadNotificationsToggle(
+  environmentId: EnvironmentId,
+): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadNotificationsToggle === true
+  );
+}
+
 export function readEnvironmentThreadRefs(
   environmentId: EnvironmentId,
 ): ReadonlyArray<ScopedThreadRef> {

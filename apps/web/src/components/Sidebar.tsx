@@ -34,6 +34,14 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
 } from "@t3tools/client-runtime/state/thread-inbox";
+import {
+  collapseNestedGroups,
+  groupNestedThreads,
+  type NestedGroup,
+  nestedRowKey,
+  nestedRowKeys,
+  nestingParentCandidates,
+} from "@t3tools/client-runtime/state/thread-nesting";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
 import {
   nextShownOrder,
@@ -58,7 +66,7 @@ import {
   type ContextMenuSource,
   ProjectId,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
 } from "@t3tools/contracts";
 import {
   resolveListedAncestorThreadRef,
@@ -331,6 +339,10 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const COLLAPSED_NEST_PARENTS_KEY = "t3code:sidebar:collapsed-nest-parents";
+const COLLAPSED_NEST_PARENTS_LIMIT = 200;
+const COLLAPSED_NEST_PARENTS_SCHEMA = Schema.Array(Schema.String);
+const EMPTY_KEYS: readonly string[] = [];
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -463,6 +475,11 @@ function useSidebarThreads(input: {
     false,
     Schema.Boolean,
   );
+  const [collapsedNestParents, setCollapsedNestParents] = useLocalStorage(
+    COLLAPSED_NEST_PARENTS_KEY,
+    EMPTY_KEYS,
+    COLLAPSED_NEST_PARENTS_SCHEMA,
+  );
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
@@ -490,8 +507,21 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const { workingThreads, snoozedThreads, settledThreads } = partition;
+  const collapsedNestKeys = new Set(collapsedNestParents);
+  const nestGroups = new Map<string, NestedGroup<EnvironmentThreadShell>>();
+  // A collapsed parent still shows the open thread.
+  const collapseNests = (rows: readonly EnvironmentThreadShell[]) => {
+    const result = collapseNestedGroups(
+      rows,
+      collapsedNestKeys,
+      (row) => threadShellKey(row) === routeRowThreadKey,
+    );
+    for (const [key, group] of result.groups) nestGroups.set(key, group);
+    return result.rows;
+  };
+  const pinnedThreads = collapseNests(partition.pinnedThreads);
+  const activeThreads = collapseNests(partition.activeThreads);
   const isSearchingSettled = settledShelfExpanded && settledSearchQuery.trim().length > 0;
   const settledSearchScopes = olderSettledScopes(useConnectedEnvironmentIds(), scopedProjectKeys);
   const settledSearch = useThreadSearch(
@@ -531,15 +561,17 @@ function useSidebarThreads(input: {
     }
     return visible;
   })();
-  const renderedSettledThreads = settledShelfExpanded
-    ? visibleSettledThreads
-    : routeThreadOnly(visibleSettledThreads, routeRowThreadKey);
-  const visibleSnoozedThreads = snoozedShelfExpanded
-    ? snoozedThreads
-    : routeThreadOnly(snoozedThreads, routeRowThreadKey);
-  const visibleWorkingThreads = workingShelfExpanded
-    ? workingThreads
-    : routeThreadOnly(workingThreads, routeRowThreadKey);
+  const renderedSettledThreads = collapseNests(
+    settledShelfExpanded
+      ? visibleSettledThreads
+      : routeThreadOnly(visibleSettledThreads, routeRowThreadKey),
+  );
+  const visibleSnoozedThreads = collapseNests(
+    snoozedShelfExpanded ? snoozedThreads : routeThreadOnly(snoozedThreads, routeRowThreadKey),
+  );
+  const visibleWorkingThreads = collapseNests(
+    workingShelfExpanded ? workingThreads : routeThreadOnly(workingThreads, routeRowThreadKey),
+  );
   const projectFolders =
     folderGroups === null
       ? null
@@ -571,8 +603,8 @@ function useSidebarThreads(input: {
   ];
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
-    [pinnedThreads, "pinned"],
-    [activeThreads, "active"],
+    [partition.pinnedThreads, "pinned"],
+    [partition.activeThreads, "active"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
@@ -583,9 +615,11 @@ function useSidebarThreads(input: {
     ...partition,
     threads,
     workingShelfEnabled,
+    pinnedThreads,
+    activeThreads,
     searchableThreads: [
-      ...pinnedThreads,
-      ...activeThreads,
+      ...partition.pinnedThreads,
+      ...partition.activeThreads,
       ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
@@ -613,6 +647,16 @@ function useSidebarThreads(input: {
     toggleSnoozedShelf: () => setSnoozedShelfExpanded((value) => !value),
     workingShelfExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
+    nestGroups,
+    collapsedNestKeys,
+    toggleNestGroup: (thread: Parameters<typeof nestedRowKey>[0]) => {
+      const key = nestedRowKey(thread);
+      setCollapsedNestParents((keys) =>
+        keys.includes(key)
+          ? keys.filter((existing) => existing !== key)
+          : [...keys, key].slice(-COLLAPSED_NEST_PARENTS_LIMIT),
+      );
+    },
     projectFolders,
     toggleProjectFolder: (group: SidebarProjectSnapshot) => {
       const keys = sidebarFolderExpansionKeys(group);
@@ -709,7 +753,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
       : sortThreadsForSidebar(active);
   return {
-    pinnedThreads:
+    pinnedThreads: groupNestedThreads(
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
         ? sortedPinned
         : orderItemsByPreferredIds({
@@ -717,9 +761,10 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
+    ),
     draggableThreadKeys,
     activeReorderableThreadKeys,
-    activeThreads:
+    activeThreads: groupNestedThreads(
       optimisticDrop?.section !== "active" || optimisticDrop.order === null
         ? sortedActive
         : orderItemsByPreferredIds({
@@ -727,13 +772,16 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
-    workingThreads: sortWorkingThreadsBySend(working),
-    snoozedThreads: snoozed.toSorted(
-      (left, right) =>
-        firstValidTimestampMs(left.snoozedUntil ?? null) -
-        firstValidTimestampMs(right.snoozedUntil ?? null),
     ),
-    settledThreads: sortSettledThreads(settled),
+    workingThreads: groupNestedThreads(sortWorkingThreadsBySend(working)),
+    snoozedThreads: groupNestedThreads(
+      snoozed.toSorted(
+        (left, right) =>
+          firstValidTimestampMs(left.snoozedUntil ?? null) -
+          firstValidTimestampMs(right.snoozedUntil ?? null),
+      ),
+    ),
+    settledThreads: groupNestedThreads(sortSettledThreads(settled)),
     visibleThreads: visible,
     snoozeNow: preciseNow,
   };
@@ -939,6 +987,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     unpinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
+    nestThread,
+    setThreadNotifications,
     turnThreadIntoProject,
     reorderPinnedThread,
     reorderActiveThread,
@@ -1329,6 +1379,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     toggleSnoozedShelf,
     workingShelfExpanded,
     toggleWorkingShelf,
+    nestGroups,
+    collapsedNestKeys,
+    toggleNestGroup,
     projectFolders,
     toggleProjectFolder,
     renderedSettledThreads,
@@ -2000,6 +2053,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     // Update the local list too; threadByKey already omits rows moved into collapsed shelves.
     sidebarListItems = sidebarListItemsFresh;
   }
+  // Mirrors the row loop below: markers and folders end a nesting group.
+  const nestedThreadKeys = nestedRowKeys(
+    sidebarListItems.flatMap((item) => {
+      if (item.kind === "thread") {
+        return projectFolders !== null && item.section === "active"
+          ? []
+          : [threadByKey.get(item.key) ?? null];
+      }
+      return projectFolders !== null && item.marker === "active-placeholder"
+        ? projectFolders.flatMap((folder) => [null, ...folder.threads])
+        : [null];
+    }),
+  );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels the dnd-kit drag sensor when the dragged row leaves the list
   useEffect(() => {
     if (
@@ -2623,6 +2689,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
+        const supportsNesting =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadNesting === true;
+        const supportsNotificationsToggle =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities
+            .threadNotificationsToggle === true;
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
@@ -2659,6 +2730,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               isPinned,
               isSettled,
               autoSettleEnabled: thread.autoSettleDisabledAt == null,
+              notificationsOn: thread.notifications !== "off",
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
@@ -2667,9 +2739,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              ...(supportsNesting
+                ? {
+                    nesting: {
+                      parents: nestingParentCandidates(thread, threads),
+                      isNested: thread.nestedUnderThreadId != null,
+                    },
+                  }
+                : {}),
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
+                notificationsToggle: supportsNotificationsToggle,
                 snooze: configLoaded,
                 pinning: configLoaded,
                 titleRegeneration: configLoaded,
@@ -2693,6 +2774,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   thread.environmentId,
                 );
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (clicked.value.startsWith("nest:") || clicked.value === "unnest") {
+          const result = await nestThread(
+            threadRef,
+            clicked.value === "unnest" ? null : ThreadId.make(clicked.value.slice("nest:".length)),
+          );
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to move thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
           return;
         }
         switch (clicked.value) {
@@ -2779,6 +2877,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 stackedThreadToast({
                   type: "error",
                   title: "Failed to update auto-settle",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+            return;
+          }
+          case "notifications:on":
+          case "notifications:off": {
+            const result = await setThreadNotifications(
+              threadRef,
+              clicked.value === "notifications:on" ? "on" : "off",
+            );
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Failed to update notifications",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -3393,6 +3509,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             thread={thread}
                             variant={rowVariant}
+                            nested={nestedThreadKeys.has(nestedRowKey(thread))}
+                            nestedGroup={nestGroups.get(nestedRowKey(thread))}
+                            nestedGroupCollapsed={collapsedNestKeys.has(nestedRowKey(thread))}
+                            onToggleNestedGroup={toggleNestGroup}
                             navigationParent={
                               folderRow ??
                               (section === "working" ||
